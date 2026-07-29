@@ -2,12 +2,13 @@ const express = require('express');
 const app = express();
 const port = process.env.PORT || 10000;
 
+// Pornește serverul Web pentru Render
 app.get('/', (req, res) => {
   res.send('VLS BOT este ONLINE 24/7!');
 });
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Server web pornit pe portul ${port}`);
+  console.log(`Server web pornit cu succes pe portul ${port}`);
 });
 
 const { 
@@ -38,12 +39,12 @@ const client = new Client({
 
 // ==================== CONFIGURARE ====================
 const STAFF_ROLE_ID = '1530184577648300253'; 
-const VERIFIED_ROLE_ID = '1530184597919240192'; // 👈 ROLUL TĂU SPECIFICAT
+const VERIFIED_ROLE_ID = '1530184597919240192'; 
 // =====================================================
 
 const userMessageTracker = new Map();
 
-// 1. Definim Lista de Comenzi Slash
+// 1. Definim Lista de Comenzi Slash Complete
 const commands = [
   new SlashCommandBuilder()
     .setName('setup-verify')
@@ -282,6 +283,79 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
   const { commandName, options, guild, channel, member: executor } = interaction;
   const botMember = guild.members.me;
 
+  if (commandName === 'warn') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const reason = options.getString('motiv');
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
+
+    const err = checkHierarchy(executor, targetMember, botMember);
+    if (err) return interaction.editReply({ content: `❌ ${err}` });
+
+    const warnEmbed = new EmbedBuilder()
+      .setTitle('⚠️ Avertisment Primit')
+      .setColor(0xFEE75C)
+      .setDescription(`Ai fost avertizat pe serverul **${guild.name}**!\n**Motiv:** ${reason}`)
+      .setTimestamp();
+
+    await target.send({ embeds: [warnEmbed] }).catch(() => {});
+    await interaction.editReply({ content: `⚠️ **${target.tag}** a fost avertizat! Motiv: *${reason}*` });
+  }
+
+  if (commandName === 'userinfo') {
+    await interaction.deferReply({ ephemeral: true });
+    const userTarget = options.getUser('user') || interaction.user;
+    const memberTarget = await guild.members.fetch(userTarget.id).catch(() => null);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`👤 Informații utilizator - ${userTarget.tag}`)
+      .setThumbnail(userTarget.displayAvatarURL({ dynamic: true }))
+      .setColor(0x5865F2)
+      .addFields(
+        { name: '🆔 ID Utilizator:', value: userTarget.id, inline: true },
+        { name: '📅 Cont Creat:', value: `<t:${Math.floor(userTarget.createdTimestamp / 1000)}:R>`, inline: true },
+        { name: '📥 Alăturat pe Server:', value: memberTarget ? `<t:${Math.floor(memberTarget.joinedTimestamp / 1000)}:R>` : 'N/A', inline: true }
+      )
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+  }
+
+  if (commandName === 'serverinfo') {
+    await interaction.deferReply({ ephemeral: true });
+    const embed = new EmbedBuilder()
+      .setTitle(`📊 Informații Server - ${guild.name}`)
+      .setThumbnail(guild.iconURL({ dynamic: true }))
+      .setColor(0x5865F2)
+      .addFields(
+        { name: '👑 Owner:', value: `<@${guild.ownerId}>`, inline: true },
+        { name: '👥 Membri Totali:', value: `${guild.memberCount}`, inline: true },
+        { name: '💬 Canale:', value: `${guild.channels.cache.size}`, inline: true },
+        { name: '📅 Creat pe:', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:R>`, inline: true }
+      )
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+  }
+
+  if (commandName === 'ticket-setup') {
+    await interaction.deferReply({ ephemeral: true });
+    const embed = new EmbedBuilder()
+      .setTitle('🎫 SUPORT TICKET')
+      .setDescription('Apasă pe butonul corespunzător de mai jos pentru a deschide un ticket de suport.')
+      .setColor(0x5865F2);
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('tk_support').setLabel('Suport General').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('tk_reward').setLabel('Claim Reward').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('tk_report').setLabel('Report Member').setStyle(ButtonStyle.Danger)
+    );
+
+    await channel.send({ embeds: [embed], components: [row] });
+    await interaction.editReply({ content: '✅ Panoul de ticket-uri a fost creat cu succes!' });
+  }
+
   if (commandName === 'kick') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
@@ -306,7 +380,7 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
       if (err) return interaction.editReply({ content: `❌ ${err}` });
     }
     await guild.members.ban(target, { reason }).catch(() => {});
-    await interaction.editReply({ content: `⛔ **${target.tag}** a fost banat! Motiv: *${reason}*` });
+    await interaction.editReply({ content: `⛔ **${target.tag}** a fost banat!Motiv: *${reason}*` });
   }
 
   if (commandName === 'unban') {
@@ -390,7 +464,7 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
   }
 });
 
-// 6. Sistem Ticket
+// 6. Sistem Ticket Interacțiuni
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
   const { customId, guild, user } = interaction;
