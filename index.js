@@ -3,22 +3,10 @@ const app = express();
 const port = process.env.PORT || 10000;
 
 app.get('/', (req, res) => {
-  res.send('VLS BOT este ONLINE!');
+  res.send('VLS BOT este ONLINE 24/7!');
 });
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Server web pornit pe portul ${port}`);
-});
-
-const express = require('express');
-const app = express();
-const port = process.env.PORT || 3000;
-
-app.get('/', (req, res) => {
-  res.send('VLS BOT este treaz și funcționează!');
-});
-
-app.listen(port, () => {
   console.log(`Server web pornit pe portul ${port}`);
 });
 
@@ -47,9 +35,11 @@ const client = new Client({
   ]
 });
 
+// ID-ul rolului de Staff / Support
+const STAFF_ROLE_ID = '1530184577648300253';
+
 // 1. Definim Comenzile Slash & Moderare
 const commands = [
-  // --- MODERARE ---
   new SlashCommandBuilder()
     .setName('kick')
     .setDescription('Dă afară un membru de pe server.')
@@ -100,13 +90,11 @@ const commands = [
     .setDescription('Deblochează canalul curent.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
-  // --- TICKET SETUP ---
   new SlashCommandBuilder()
     .setName('ticket-setup')
     .setDescription('Trimite panoul principal de suport prin Ticket.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  // --- UTILITARE ---
   new SlashCommandBuilder().setName('ping').setDescription('Verifică ping-ul botului.')
 ].map(cmd => cmd.toJSON());
 
@@ -232,7 +220,7 @@ client.on('interactionCreate', async (interaction) => {
   if (commandName === 'ping') await interaction.reply('Pong! 🏓 VLS BOT răspunde instant!');
 });
 
-// 4. Sistem Butoane TK (Creare / Închidere Ticket)
+// 4. Sistem Butoane TK (Creare / Închidere Ticket cu Permisiuni & Embed)
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
@@ -240,12 +228,13 @@ client.on('interactionCreate', async (interaction) => {
 
   // Butoane TK (Reward, Report, Support)
   if (['tk_reward', 'tk_report', 'tk_support'].includes(customId)) {
-    let categoryName = 'support';
-    let prefix = 'ticket';
+    let categoryName = 'General Support';
+    let prefix = 'support';
+    let embedColor = 0x5865F2; // Albastru
 
-    if (customId === 'tk_reward') { categoryName = '🎁 Claim Reward'; prefix = 'reward'; }
-    if (customId === 'tk_report') { categoryName = '🚨 Report User'; prefix = 'report'; }
-    if (customId === 'tk_support') { categoryName = '🛡️ General Support'; prefix = 'support'; }
+    if (customId === 'tk_reward') { categoryName = '🎁 Claim Reward'; prefix = 'reward'; embedColor = 0x57F287; } // Verde
+    if (customId === 'tk_report') { categoryName = '🚨 Report User'; prefix = 'report'; embedColor = 0xED4245; } // Roșu
+    if (customId === 'tk_support') { categoryName = '🛡️ General Support'; prefix = 'support'; embedColor = 0x5865F2; }
 
     const cleanUsername = user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
     const channelName = `${prefix}-${cleanUsername}`;
@@ -256,28 +245,46 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: `⚠️ Ai deja un ticket deschis aici: ${existingChannel}`, ephemeral: true });
     }
 
-    // Creare canal privat
+    // Creare canal privat cu permisiuni explicite pentru Staff
     const ticketChannel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
       permissionOverwrites: [
         {
-          id: guild.id,
+          id: guild.id, // Ascuns de toți membrii obișnuiți (@everyone)
           deny: [PermissionsBitField.Flags.ViewChannel]
         },
         {
-          id: user.id,
+          id: user.id, // Permisiuni pentru persoana care a deschis ticketul
           allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles]
+        },
+        {
+          id: STAFF_ROLE_ID, // Permisiuni explicite pentru ROLUL DE STAFF
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles, PermissionsBitField.Flags.ManageChannels]
         }
       ]
     });
+
+    // Embed-ul transmis în ticket
+    const ticketEmbed = new EmbedBuilder()
+      .setTitle(`🎫 Ticket nou: ${categoryName}`)
+      .setDescription(`Salut <@${user.id}>! Bine ai venit în ticketul tău.\n\nUn membru din staff (<@&${STAFF_ROLE_ID}>) îți va prelua solicitarea în cel mai scurt timp. Te rugăm să descrii detaliat problema și să atașezi dovezile necesare.`)
+      .setColor(embedColor)
+      .addFields(
+        { name: '👤 Deschis de:', value: `<@${user.id}>`, inline: true },
+        { name: '📂 Categorie:', value: categoryName, inline: true }
+      )
+      .setTimestamp()
+      .setFooter({ text: 'VLS Community • Centru de Suport' });
 
     const closeRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Închide Ticket').setStyle(ButtonStyle.Danger)
     );
 
+    // Trimitem ping-ul pentru staff + embed + butonul de închidere
     await ticketChannel.send({
-      content: `Salut <@${user.id}>! Ai deschis un ticket la categoria **${categoryName}**.\nTe rugăm să oferi detaliile necesare, iar echipa noastră îți va răspunde în cel mai scurt timp.`,
+      content: `<@&${STAFF_ROLE_ID}> <@${user.id}>`,
+      embeds: [ticketEmbed],
       components: [closeRow]
     });
 
@@ -295,4 +302,4 @@ client.on('interactionCreate', async (interaction) => {
 
 // Logare
 client.login(process.env.DISCORD_TOKEN);
-                                 
+      
