@@ -7,7 +7,7 @@ app.get('/', (req, res) => {
 });
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Server web pornit cu succes pe portul ${port}`);
+  console.log('Server web pornit cu succes pe portul ' + port);
 });
 
 const { 
@@ -36,11 +36,9 @@ const client = new Client({
   ]
 });
 
-// ==================== CONFIGURARE ====================
 const STAFF_ROLE_ID = '1530184577648300253'; 
 const VERIFIED_ROLE_ID = '1530184597919240192'; 
 const GUILD_ID = '1455317975191126219'; 
-// =====================================================
 
 const userMessageTracker = new Map();
 const userLastMessage = new Map();
@@ -144,7 +142,7 @@ const commands = [
 ].map(cmd => cmd.toJSON());
 
 client.once('ready', async () => {
-  console.log(`VLS BOT este ONLINE cu Securitate Maximă!`);
+  console.log('VLS BOT este ONLINE cu Securitate Maximă!');
   client.user.setActivity('🔒 Security Active', { type: ActivityType.Watching });
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -185,7 +183,7 @@ client.on('messageCreate', async (message) => {
   const urlRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.(gg|io|me|li|com\/invite)\/[^\s]+)/i;
   if (urlRegex.test(message.content)) {
     await message.delete().catch(() => {});
-    const warnLink = await message.channel.send(`🚨 <@${message.author.id}>, link-urile și invitațiile sunt strict interzise!`);
+    const warnLink = await message.channel.send('🚨 <@' + message.author.id + '>, link-urile și invitațiile sunt strict interzise!');
     setTimeout(() => warnLink.delete().catch(() => {}), 5000);
     return;
   }
@@ -196,7 +194,7 @@ client.on('messageCreate', async (message) => {
   if (hasEveryoneOrHere || totalMentions > 2) {
     await message.delete().catch(() => {});
     await member.timeout(60 * 60 * 1000, 'Securitate: Mass-Ping sau Everyone Raid').catch(() => {});
-    const warnPing = await message.channel.send(`🛡️ <@${message.author.id}> a primit TIMEOUT 1 ORĂ pentru Mass-Ping / Everyone!`);
+    const warnPing = await message.channel.send('🛡️ <@' + message.author.id + '> a primit TIMEOUT 1 ORĂ pentru Mass-Ping / Everyone!');
     setTimeout(() => warnPing.delete().catch(() => {}), 7000);
     return;
   }
@@ -209,7 +207,7 @@ client.on('messageCreate', async (message) => {
     if (lastData.content === message.content && (now - lastData.time) < 10000) {
       await message.delete().catch(() => {});
       await member.timeout(30 * 60 * 1000, 'Securitate: Spam mesaje identice').catch(() => {});
-      const warnDup = await message.channel.send(`🛡️ <@${message.author.id}> a primit timeout 30 minute pentru spam identic!`);
+      const warnDup = await message.channel.send('🛡️ <@' + message.author.id + '> a primit timeout 30 minute pentru spam identic!');
       setTimeout(() => warnDup.delete().catch(() => {}), 6000);
       userLastMessage.delete(userId);
       return;
@@ -224,7 +222,7 @@ client.on('messageCreate', async (message) => {
       if (userData.messageCount >= 4) {
         await message.delete().catch(() => {});
         await member.timeout(20 * 60 * 1000, 'Securitate: Flood / Spam rapid').catch(() => {});
-        const warnSpam = await message.channel.send(`🛡️ <@${message.author.id}> a primit timeout 20 minute pentru flood!`);
+        const warnSpam = await message.channel.send('🛡️ <@' + message.author.id + '> a primit timeout 20 minute pentru flood!');
         setTimeout(() => warnSpam.delete().catch(() => {}), 6000);
         userMessageTracker.delete(userId);
         return;
@@ -264,7 +262,7 @@ client.on('interactionCreate', async (interaction) => {
 
     try {
       await member.roles.add(role);
-      await interaction.reply({ content: `🎉 Verificare Reușită! Ai primit rolul <@&${VERIFIED_ROLE_ID}>.`, ephemeral: true });
+      await interaction.reply({ content: '🎉 Verificare Reușită! Ai primit rolul <@&' + VERIFIED_ROLE_ID + '>.', ephemeral: true });
     } catch (err) {
       console.error(err);
       await interaction.reply({ content: '❌ Botul nu are permisiunea de a oferi acest rol!', ephemeral: true });
@@ -284,7 +282,7 @@ client.on('interactionCreate', async (interaction) => {
     if (customId === 'tk_report') { categoryName = '🚨 Report User'; prefix = 'report'; embedColor = 0xED4245; }
 
     const cleanUsername = user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const channelName = `${prefix}-${cleanUsername}`;
+    const channelName = prefix + '-' + cleanUsername;
 
     if (guild.channels.cache.find(c => c.name === channelName)) {
       return interaction.editReply({ content: '⚠️ Ai deja un ticket deschis!' });
@@ -301,16 +299,16 @@ client.on('interactionCreate', async (interaction) => {
     });
 
     const ticketEmbed = new EmbedBuilder()
-      .setTitle(`🎫 Ticket nou: ${categoryName}`)
-      .setDescription(`Salut <@${user.id}>! Descrie problema ta în detaliu.`)
+      .setTitle('🎫 Ticket nou: ' + categoryName)
+      .setDescription('Salut <@' + user.id + '>! Descrie problema ta în detaliu.')
       .setColor(embedColor);
 
     const closeRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Închide Ticket').setStyle(ButtonStyle.Danger)
     );
 
-    await ticketChannel.send({ content: `<@&${STAFF_ROLE_ID}> <@${user.id}>`, embeds: [ticketEmbed], components: [closeRow] });
-    await interaction.editReply({ content: `✅ Ticket creat: ${ticketChannel}` });
+    await ticketChannel.send({ content: '<@&' + STAFF_ROLE_ID + '> <@' + user.id + '>', embeds: [ticketEmbed], components: [closeRow] });
+    await interaction.editReply({ content: '✅ Ticket creat: ' + ticketChannel });
     return;
   }
 
@@ -388,13 +386,13 @@ client.on('interactionCreate', async (interaction) => {
     const memberTarget = await guild.members.fetch(userTarget.id).catch(() => null);
 
     const embed = new EmbedBuilder()
-      .setTitle(`👤 Informații utilizator - ${userTarget.tag}`)
+      .setTitle('👤 Informații utilizator - ' + userTarget.tag)
       .setThumbnail(userTarget.displayAvatarURL({ dynamic: true }))
       .setColor(0x5865F2)
       .addFields(
         { name: '🆔 ID Utilizator:', value: userTarget.id, inline: true },
-        { name: '📅 Cont Creat:', value: `<t:${Math.floor(userTarget.createdTimestamp / 1000)}:R>`, inline: true },
-        { name: '📥 Alăturat pe Server:', value: memberTarget ? `<t:${Math.floor(memberTarget.joinedTimestamp / 1000)}:R>` : 'N/A', inline: true }
+        { name: '📅 Cont Creat:', value: '<t:' + Math.floor(userTarget.createdTimestamp / 1000) + ':R>', inline: true },
+        { name: '📥 Alăturat pe Server:', value: memberTarget ? '<t:' + Math.floor(memberTarget.joinedTimestamp / 1000) + ':R>' : 'N/A', inline: true }
       )
       .setTimestamp();
 
@@ -405,14 +403,14 @@ client.on('interactionCreate', async (interaction) => {
   if (commandName === 'serverinfo') {
     await interaction.deferReply({ ephemeral: false });
     const embed = new EmbedBuilder()
-      .setTitle(`📊 Informații Server - ${guild.name}`)
+      .setTitle('📊 Informații Server - ' + guild.name)
       .setThumbnail(guild.iconURL({ dynamic: true }))
       .setColor(0x5865F2)
       .addFields(
-        { name: '👑 Owner:', value: `<@${guild.ownerId}>`, inline: true },
-        { name: '👥 Membri Totali:', value: `${guild.memberCount}`, inline: true },
-        { name: '💬 Canale:', value: `${guild.channels.cache.size}`, inline: true },
-        { name: '📅 Creat pe:', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:R>`, inline: true }
+        { name: '👑 Owner:', value: '<@' + guild.ownerId + '>', inline: true },
+        { name: '👥 Membri Totali:', value: '' + guild.memberCount, inline: true },
+        { name: '💬 Canale:', value: '' + guild.channels.cache.size, inline: true },
+        { name: '📅 Creat pe:', value: '<t:' + Math.floor(guild.createdTimestamp / 1000) + ':R>', inline: true }
       )
       .setTimestamp();
 
@@ -421,7 +419,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (commandName === 'ping') {
-    await interaction.reply({ content: `Pong! 🏓 **${client.ws.ping}ms**`, ephemeral: false });
+    await interaction.reply({ content: 'Pong! 🏓 **' + client.ws.ping + 'ms**', ephemeral: false });
     return;
   }
 
@@ -433,16 +431,16 @@ client.on('interactionCreate', async (interaction) => {
     if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
 
     const err = checkHierarchy(executor, targetMember, botMember);
-    if (err) return interaction.editReply({ content: `❌ ${err}` });
+    if (err) return interaction.editReply({ content: '❌ ' + err });
 
     const warnEmbed = new EmbedBuilder()
       .setTitle('⚠️ Avertisment Primit')
       .setColor(0xFEE75C)
-      .setDescription(`Ai fost avertizat pe serverul **${guild.name}**!\n**Motiv:** ${reason}`)
+      .setDescription('Ai fost avertizat pe serverul **' + guild.name + '**!\n**Motiv:** ' + reason)
       .setTimestamp();
 
     await target.send({ embeds: [warnEmbed] }).catch(() => {});
-    await interaction.editReply({ content: `⚠️ **${target.tag}** a fost avertizat!` });
+    await interaction.editReply({ content: '⚠️ **' + target.tag + '** a fost avertizat!' });
     return;
   }
 
@@ -454,10 +452,10 @@ client.on('interactionCreate', async (interaction) => {
     if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
 
     const err = checkHierarchy(executor, targetMember, botMember);
-    if (err) return interaction.editReply({ content: `❌ ${err}` });
+    if (err) return interaction.editReply({ content: '❌ ' + err });
 
     await targetMember.kick(reason).catch(() => {});
-    await interaction.editReply({ content: `✅ **${target.tag}** a primit kick.` });
+    await interaction.editReply({ content: '✅ **' + target.tag + '** a primit kick.' });
     return;
   }
 
@@ -468,10 +466,10 @@ client.on('interactionCreate', async (interaction) => {
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
     if (targetMember) {
       const err = checkHierarchy(executor, targetMember, botMember);
-      if (err) return interaction.editReply({ content: `❌ ${err}` });
+      if (err) return interaction.editReply({ content: '❌ ' + err });
     }
     await guild.members.ban(target, { reason }).catch(() => {});
-    await interaction.editReply({ content: `⛔ **${target.tag}** a fost banat!` });
+    await interaction.editReply({ content: '⛔ **' + target.tag + '** a fost banat!' });
     return;
   }
 
@@ -480,9 +478,9 @@ client.on('interactionCreate', async (interaction) => {
     const userId = options.getString('userid');
     try {
       await guild.members.unban(userId);
-      await interaction.editReply({ content: `✅ Utilizatorul a primit unban!` });
+      await interaction.editReply({ content: '✅ Utilizatorul a primit unban!' });
     } catch {
-      await interaction.editReply({ content: `❌ Nu s-a găsit niciun ban pe acest ID.` });
+      await interaction.editReply({ content: '❌ Nu s-a găsit niciun ban pe acest ID.' });
     }
     return;
   }
@@ -496,10 +494,10 @@ client.on('interactionCreate', async (interaction) => {
     if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
 
     const err = checkHierarchy(executor, targetMember, botMember);
-    if (err) return interaction.editReply({ content: `❌ ${err}` });
+    if (err) return interaction.editReply({ content: '❌ ' + err });
 
     await targetMember.timeout(minutes * 60 * 1000, reason).catch(() => {});
-    await interaction.editReply({ content: `🔇 **${target.tag}** a primit timeout (${minutes}m).` });
+    await interaction.editReply({ content: '🔇 **' + target.tag + '** a primit timeout (' + minutes + 'm).' });
     return;
   }
 
@@ -509,7 +507,7 @@ client.on('interactionCreate', async (interaction) => {
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
     if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
     await targetMember.timeout(null).catch(() => {});
-    await interaction.editReply({ content: `🔊 Timeout scos pentru **${target.tag}**!` });
+    await interaction.editReply({ content: '🔊 Timeout scos pentru **' + target.tag + '**!' });
     return;
   }
 
@@ -517,7 +515,7 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const amount = options.getInteger('numar');
     await channel.bulkDelete(amount, true).catch(() => {});
-    await interaction.editReply({ content: `🧹 Am șters **${amount}** mesaje!` });
+    await interaction.editReply({ content: '🧹 Am șters **' + amount + '** mesaje!' });
     return;
   }
 
@@ -539,7 +537,7 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const seconds = options.getInteger('secunde');
     await channel.setRateLimitPerUser(seconds);
-    await interaction.editReply({ content: seconds === 0 ? '🚀 Slowmode dezactivat!' : `⏱️ Slowmode setat la ${seconds}s!` });
+    await interaction.editReply({ content: seconds === 0 ? '🚀 Slowmode dezactivat!' : '⏱️ Slowmode setat la ' + seconds + 's!' });
     return;
   }
 
@@ -554,4 +552,4 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-client.login(process.env.DISCORD_TOKEN
+client.login(process.env.DISCORD_TOKEN);
