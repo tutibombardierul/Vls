@@ -40,13 +40,14 @@ const client = new Client({
 // ==================== CONFIGURARE ====================
 const STAFF_ROLE_ID = '1530184577648300253'; 
 const VERIFIED_ROLE_ID = '1530184597919240192'; 
+const GUILD_ID = '1455317975191126219'; // ID-ul serverului tău
 // =====================================================
 
 const userMessageTracker = new Map();
+const userLastMessage = new Map();
 
 // 1. Definim Lista Completă de Comenzi Slash
 const commands = [
-  // --- Comenzi Administrare / Moderare / Setup (Doar pentru Staff) ---
   new SlashCommandBuilder()
     .setName('setup-verify')
     .setDescription('Trimite panoul de verificare.')
@@ -125,87 +126,114 @@ const commands = [
     .setDescription('Recreează canalul curent pentru curățare totală.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
-  // --- Comenzi Publice (Accesibile de către TOȚI membrii și vizibile public) ---
   new SlashCommandBuilder()
     .setName('say')
-    .setDescription('Trimite un mesaj prin bot (Accesibil pentru toți).')
+    .setDescription('Trimite un mesaj prin bot.')
     .addStringOption(opt => opt.setName('mesaj').setDescription('Mesajul').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('userinfo')
-    .setDescription('Informații despre utilizator (Vizibil pentru toți).')
+    .setDescription('Informații despre utilizator.')
     .addUserOption(opt => opt.setName('user').setDescription('Membru')),
 
   new SlashCommandBuilder()
     .setName('serverinfo')
-    .setDescription('Statistici server (Vizibil pentru toți).'),
+    .setDescription('Statistici server.'),
 
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription('Ping bot.')
 ].map(cmd => cmd.toJSON());
 
-// 2. Pornire Bot
+// 2. Pornire Bot & Înregistrare Instant pe Server
 client.once('ready', async () => {
-  console.log(`VLS BOT este ONLINE!`);
-  client.user.setActivity('🛡️ Protection Active', { type: ActivityType.Watching });
+  console.log(`VLS BOT este ONLINE cu Securitate Maximă!`);
+  client.user.setActivity('🔒 Security Active', { type: ActivityType.Watching });
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
-    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log('Comenzile Slash au fost actualizate!');
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, GUILD_ID), 
+      { body: commands }
+    );
+    console.log('Comenzile Slash au fost actualizate instant pe server!');
   } catch (err) {
     console.error('Eroare la comenzi:', err);
   }
 });
 
-// 3. Protecție Membri Noi (Anti-Bot)
+// 3. Protecție Maximă Membri Noi (Anti-Raid / Conturi Noi)
 client.on('guildMemberAdd', async (member) => {
   if (member.user.bot) {
     await member.kick('Securitate: Bot neautorizat detectat').catch(() => {});
+    return;
+  }
+
+  const accountAgeDays = (Date.now() - member.user.createdTimestamp) / (1000 * 60 * 60 * 24);
+  if (accountAgeDays < 3) {
+    await member.send('⛔ Contul tău este prea nou (sub 3 zile) și a fost respins automat de sistemul de securitate.').catch(() => {});
+    await member.kick('Securitate: Cont creat recent (potențial raid/alt account).').catch(() => {});
+    return;
   }
 });
 
-// 4. Filtre de Securitate în Mesaje (Anti-Link, Anti-Spam, Mass-Ping)
+// 4. Filtre de Securitate în Mesaje (Anti-Link, Anti-Everyone, Mass-Ping, Anti-Spam)
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
   const member = message.member;
-  const isStaff = member.permissions.has(PermissionFlagsBits.Administrator) || member.roles.cache.has(STAFF_ROLE_ID);
+  if (!member) return;
 
+  const isStaff = member.permissions.has(PermissionFlagsBits.Administrator) || member.roles.cache.has(STAFF_ROLE_ID);
   if (isStaff) return;
 
-  // Anti-Link Global / Scam
-  const urlRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.(gg|io|me|li)\/[^\s]+)/i;
+  // Anti-Link / Invitații
+  const urlRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.(gg|io|me|li|com\/invite)\/[^\s]+)/i;
   if (urlRegex.test(message.content)) {
     await message.delete().catch(() => {});
-    const warnLink = await message.channel.send(`⚠️ <@${message.author.id}>, link-urile și reclamele sunt **interzise**!`);
+    const warnLink = await message.channel.send(`🚨 <@${message.author.id}>, link-urile și invitațiile sunt **strict interzise**!`);
     setTimeout(() => warnLink.delete().catch(() => {}), 5000);
     return;
   }
 
-  // Anti-Mass Ping
+  // Anti-Everyone / Mass-Ping Strict
+  const hasEveryoneOrHere = message.mentions.everyone;
   const totalMentions = message.mentions.users.size + message.mentions.roles.size;
-  if (totalMentions > 5) {
+
+  if (hasEveryoneOrHere || totalMentions > 2) {
     await message.delete().catch(() => {});
-    await member.timeout(15 * 60 * 1000, 'Securitate: Mass Ping Spam').catch(() => {});
-    await message.channel.send(`🛡️ <@${message.author.id}> a primit **timeout 15 minute** pentru Mass Ping!`);
+    await member.timeout(60 * 60 * 1000, 'Securitate: Tentativă de Mass-Ping sau Everyone Raid').catch(() => {});
+    const warnPing = await message.channel.send(`🛡️ <@${message.author.id}> a primit **TIMEOUT 1 ORĂ** pentru tentativă de Mass-Ping / Everyone!`);
+    setTimeout(() => warnPing.delete().catch(() => {}), 7000);
     return;
   }
 
-  // Anti-Spam Rapid
+  // Anti-Spam Identic & Flood Rapid
   const userId = message.author.id;
   const now = Date.now();
+
+  if (userLastMessage.has(userId)) {
+    const lastData = userLastMessage.get(userId);
+    if (lastData.content === message.content && (now - lastData.time) < 10000) {
+      await message.delete().catch(() => {});
+      await member.timeout(30 * 60 * 1000, 'Securitate: Spam cu mesaje identice').catch(() => {});
+      const warnDup = await message.channel.send(`🛡️ <@${message.author.id}> a primit **timeout 30 minute** pentru spam de mesaje identice!`);
+      setTimeout(() => warnDup.delete().catch(() => {}), 6000);
+      userLastMessage.delete(userId);
+      return;
+    }
+  }
+  userLastMessage.set(userId, { content: message.content, time: now });
 
   if (userMessageTracker.has(userId)) {
     const userData = userMessageTracker.get(userId);
     if (now - userData.firstMessageTime < 4000) {
       userData.messageCount++;
-      if (userData.messageCount >= 5) {
+      if (userData.messageCount >= 4) {
         await message.delete().catch(() => {});
-        await member.timeout(10 * 60 * 1000, 'Securitate: Auto-Spam Detectat').catch(() => {});
-        const warnSpam = await message.channel.send(`🛡️ <@${message.author.id}> a primit **timeout 10 minute** pentru Spam rapid!`);
-        setTimeout(() => warnSpam.delete().catch(() => {}), 7000);
+        await member.timeout(20 * 60 * 1000, 'Securitate: Flood / Spam rapid detectat').catch(() => {});
+        const warnSpam = await message.channel.send(`🛡️ <@${message.author.id}> a primit **timeout 20 minute** pentru flood/spam rapid!`);
+        setTimeout(() => warnSpam.delete().catch(() => {}), 6000);
         userMessageTracker.delete(userId);
         return;
       }
@@ -229,35 +257,10 @@ function checkHierarchy(executorMember, targetMember, botMember) {
   return null;
 }
 
-// 5. Gestionare Comenzi Slash & Interacțiuni
+// 5. Gestionare Unificată Interacțiuni (Butoane & Comenzi Slash)
 client.on('interactionCreate', async (interaction) => {
 
-  // --- Comanda /setup-verify ---
-  if (interaction.isChatInputCommand() && interaction.commandName === 'setup-verify') {
-    await interaction.deferReply({ ephemeral: true });
-
-    const verifyEmbed = new EmbedBuilder()
-      .setTitle('🛡️ CENTRU DE VERIFICARE')
-      .setDescription(
-`### Bine ai venit pe server!
-Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
-      )
-      .setColor(0x5865F2)
-      .setFooter({ text: 'VLS Community Verification' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('btn_verify_me')
-        .setLabel('Verifică-te 🛡️')
-        .setStyle(ButtonStyle.Success)
-    );
-
-    await interaction.channel.send({ embeds: [verifyEmbed], components: [row] });
-    await interaction.editReply({ content: '✅ Panoul de verificare a fost creat cu succes!' });
-    return;
-  }
-
-  // --- Apăsare pe Butonul "Verifică-te 🛡️" ---
+  // --- Apăsare Buton Verificare ---
   if (interaction.isButton() && interaction.customId === 'btn_verify_me') {
     const member = interaction.member;
     const role = interaction.guild.roles.cache.get(VERIFIED_ROLE_ID);
@@ -275,17 +278,119 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
       await interaction.reply({ content: `🎉 **Verificare Reușită!** Ai primit rolul <@&${VERIFIED_ROLE_ID}>.`, ephemeral: true });
     } catch (err) {
       console.error(err);
-      await interaction.reply({ content: '❌ Botul nu are permisiunea de a oferi acest rol! Asigură-te că rolul botului este mai sus decât rolul acordat.', ephemeral: true });
+      await interaction.reply({ content: '❌ Botul nu are permisiunea de a oferi acest rol! Asigură-te că rolul botului este mai sus în listă.', ephemeral: true });
     }
     return;
   }
 
+  // --- Apăsare Buton Tickete ---
+  if (interaction.isButton() && ['tk_reward', 'tk_report', 'tk_support'].includes(interaction.customId)) {
+    await interaction.deferReply({ ephemeral: true });
+    const { customId, guild, user } = interaction;
+
+    let categoryName = 'General Support';
+    let prefix = 'support';
+    let embedColor = 0x5865F2;
+
+    if (customId === 'tk_reward') { categoryName = '🎁 Claim Reward'; prefix = 'reward'; embedColor = 0x57F287; }
+    if (customId === 'tk_report') { categoryName = '🚨 Report User'; prefix = 'report'; embedColor = 0xED4245; }
+
+    const cleanUsername = user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const channelName = `${prefix}-${cleanUsername}`;
+
+    if (guild.channels.cache.find(c => c.name === channelName)) {
+      return interaction.editReply({ content: '⚠️ Ai deja un ticket deschis!' });
+    }
+
+    const ticketChannel = await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      permissionOverwrites: [
+        { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles] },
+        { id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles] }
+      ]
+    });
+
+    const ticketEmbed = new EmbedBuilder()
+      .setTitle(`🎫 Ticket nou: ${categoryName}`)
+      .setDescription(`Salut <@${user.id}>! Descrie problema ta în detaliu.`)
+      .setColor(embedColor);
+
+    const closeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Închide Ticket').setStyle(ButtonStyle.Danger)
+    );
+
+    await ticketChannel.send({ content: `<@&${STAFF_ROLE_ID}> <@${user.id}>`, embeds: [ticketEmbed], components: [closeRow] });
+    await interaction.editReply({ content: `✅ Ticket creat: ${ticketChannel}` });
+    return;
+  }
+
+  // --- Închidere Ticket ---
+  if (interaction.isButton() && interaction.customId === 'close_ticket') {
+    await interaction.reply({ content: '🔒 Ticketul se va închide în 5 secunde...', ephemeral: true });
+    setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+    return;
+  }
+
+  // --- Comenzi Slash ---
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName, options, guild, channel, member: executor } = interaction;
   const botMember = guild.members.me;
 
-  // --- COMENZI PUBLICE (Vizibile public și folosite de toți) ---
+  // --- Comanda /setup-verify ---
+  if (commandName === 'setup-verify') {
+    await interaction.deferReply({ ephemeral: true });
+
+    const verifyEmbed = new EmbedBuilder()
+      .setTitle('🛡️ CENTRU DE VERIFICARE')
+      .setDescription('### Bine ai venit pe server!\nApasă pe butonul de mai jos pentru a primi accesul complet pe server.')
+      .setColor(0x5865F2)
+      .setFooter({ text: 'VLS Community Verification' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('btn_verify_me')
+        .setLabel('Verifică-te 🛡️')
+        .setStyle(ButtonStyle.Success)
+    );
+
+    await interaction.channel.send({ embeds: [verifyEmbed], components: [row] });
+    await interaction.editReply({ content: '✅ Panoul de verificare a fost creat cu succes!' });
+    return;
+  }
+
+  // --- Comanda /ticket-setup ---
+  if (commandName === 'ticket-setup') {
+    await interaction.deferReply({ ephemeral: true });
+    
+    const embed = new EmbedBuilder()
+      .setTitle('🎫 SUPORT TICKET')
+      .setDescription('# 🎫 CENTRU DE SUPORT
+***  Ai nevoie de ajutor? Selectează categoria potrivită din meniul de mai jos și deschide un ticket. Echipa noastră îți va răspunde cât mai curând posibil.***
+## 🎁 Claim Reward
+**Deschide un ticket pentru a revendica un premiu sau o recompensă. Te rugăm să atașezi dovezile necesare.**
+## 🚨 Report a User
+**Raportează un utilizator care a încălcat regulamentul. Include ID-ul utilizatorului, motivul raportării și dovezi clare.**
+## 🛡️ General Support
+**Pentru întrebări, probleme sau orice alt tip de ajutor care nu se încadrează în categoriile de mai sus.**
+-# Nu deschide ticket-uri fără motiv și nu contacta membrii staff-ului în privat. Abuzul sistemului de suport poate duce la sancțiuni.')
+      .setColor(0x5865F2)
+      .setImage('https://cdn.discordapp.com/attachments/1527382497342783568/1530170988682285177/standard_29.gif?ex=6a6b31c8&is=6a69e048&hm=ec0f08c269ade7cc79a65f6316d2d80e57e0f15258fdc1e58b37fa67e648074b&');
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('tk_support').setLabel('Suport General').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('tk_reward').setLabel('Claim Reward').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('tk_report').setLabel('Report Member').setStyle(ButtonStyle.Danger)
+    );
+
+    await channel.send({ embeds: [embed], components: [row] });
+    await interaction.editReply({ content: '✅ Panoul de ticket-uri cu GIF a fost creat cu succes!' });
+    return;
+  }
+
+  // --- Comenzi Publice ---
   if (commandName === 'say') {
     await interaction.deferReply({ ephemeral: false });
     await channel.send(options.getString('mesaj'));
@@ -336,30 +441,9 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
     return;
   }
 
-  // --- COMANDA /ticket-setup (Cu GIF-ul tău inclus) ---
-  if (commandName === 'ticket-setup') {
-    await interaction.deferReply({ ephemeral: true });
-    
-    const embed = new EmbedBuilder()
-      .setTitle('🎫 SUPORT TICKET')
-      .setDescription('Apasă pe butonul corespunzător de mai jos pentru a deschide un ticket de suport.')
-      .setColor(0x5865F2)
-      .setImage('https://cdn.discordapp.com/attachments/1527382497342783568/1530170988682285177/standard_29.gif?ex=6a6b31c8&is=6a69e048&hm=ec0f08c269ade7cc79a65f6316d2d80e57e0f15258fdc1e58b37fa67e648074b&');
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('tk_support').setLabel('Suport General').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('tk_reward').setLabel('Claim Reward').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('tk_report').setLabel('Report Member').setStyle(ButtonStyle.Danger)
-    );
-
-    await channel.send({ embeds: [embed], components: [row] });
-    await interaction.editReply({ content: '✅ Panoul de ticket-uri cu GIF a fost creat cu succes!' });
-    return;
-  }
-
-  // --- COMENZI DE MODERARE / ADMIN ---
+  // --- Comenzi de Moderare / Admin ---
   if (commandName === 'warn') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const target = options.getUser('user');
     const reason = options.getString('motiv');
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
@@ -376,10 +460,11 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
 
     await target.send({ embeds: [warnEmbed] }).catch(() => {});
     await interaction.editReply({ content: `⚠️ **${target.tag}** a fost avertizat! Motiv: *${reason}*` });
+    return;
   }
 
   if (commandName === 'kick') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const target = options.getUser('user');
     const reason = options.getString('motiv') || 'Fără motiv';
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
@@ -390,10 +475,11 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
 
     await targetMember.kick(reason).catch(() => {});
     await interaction.editReply({ content: `✅ **${target.tag}** a primit kick. Motiv: *${reason}*` });
+    return;
   }
 
   if (commandName === 'ban') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const target = options.getUser('user');
     const reason = options.getString('motiv') || 'Fără motiv';
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
@@ -403,10 +489,11 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
     }
     await guild.members.ban(target, { reason }).catch(() => {});
     await interaction.editReply({ content: `⛔ **${target.tag}** a fost banat! Motiv: *${reason}*` });
+    return;
   }
 
   if (commandName === 'unban') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const userId = options.getString('userid');
     try {
       await guild.members.unban(userId);
@@ -414,10 +501,11 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
     } catch {
       await interaction.editReply({ content: `❌ Nu s-a găsit niciun ban pe acest ID.` });
     }
+    return;
   }
 
   if (commandName === 'timeout') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const target = options.getUser('user');
     const minutes = options.getInteger('minute');
     const reason = options.getString('motiv') || 'Fără motiv';
@@ -429,34 +517,39 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
 
     await targetMember.timeout(minutes * 60 * 1000, reason).catch(() => {});
     await interaction.editReply({ content: `🔇 **${target.tag}** a primit timeout (${minutes}m). Motiv: *${reason}*` });
+    return;
   }
 
   if (commandName === 'unmute') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const target = options.getUser('user');
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
     if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
     await targetMember.timeout(null).catch(() => {});
     await interaction.editReply({ content: `🔊 Timeout scos pentru **${target.tag}**!` });
+    return;
   }
 
   if (commandName === 'clear') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const amount = options.getInteger('numar');
     await channel.bulkDelete(amount, true).catch(() => {});
     await interaction.editReply({ content: `🧹 Am șters **${amount}** mesaje!` });
+    return;
   }
 
   if (commandName === 'lock') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false, SendMessagesInThreads: false });
     await interaction.editReply({ content: '🔒 Canal **blocat**!' });
+    return;
   }
 
   if (commandName === 'unlock') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null, SendMessagesInThreads: null });
     await interaction.editReply({ content: '🔓 Canal **deblocat**!' });
+    return;
   }
 
   if (commandName === 'slowmode') {
@@ -464,68 +557,18 @@ Apasă pe butonul de mai jos pentru a primii accesul complet pe server.`
     const seconds = options.getInteger('secunde');
     await channel.setRateLimitPerUser(seconds);
     await interaction.editReply({ content: seconds === 0 ? '🚀 Slowmode dezactivat!' : `⏱️ Slowmode setat la **${seconds}s**!` });
+    return;
   }
 
   if (commandName === 'nuke') {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const pos = channel.position;
     const newChan = await channel.clone();
     await channel.delete();
     await newChan.setPosition(pos);
     await newChan.send('💣 **Canalul a fost curățat complet (Nuked)!**');
-  }
-});
-
-// 6. Sistem Ticket Interacțiuni (Butoane)
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
-  const { customId, guild, user } = interaction;
-
-  if (['tk_reward', 'tk_report', 'tk_support'].includes(customId)) {
-    await interaction.deferReply({ ephemeral: true });
-
-    let categoryName = 'General Support';
-    let prefix = 'support';
-    let embedColor = 0x5865F2;
-
-    if (customId === 'tk_reward') { categoryName = '🎁 Claim Reward'; prefix = 'reward'; embedColor = 0x57F287; }
-    if (customId === 'tk_report') { categoryName = '🚨 Report User'; prefix = 'report'; embedColor = 0xED4245; }
-
-    const cleanUsername = user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const channelName = `${prefix}-${cleanUsername}`;
-
-    if (guild.channels.cache.find(c => c.name === channelName)) {
-      return interaction.editReply({ content: '⚠️ Ai deja un ticket deschis!' });
-    }
-
-    const ticketChannel = await guild.channels.create({
-      name: channelName,
-      type: ChannelType.GuildText,
-      permissionOverwrites: [
-        { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-        { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles] },
-        { id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles] }
-      ]
-    });
-
-    const ticketEmbed = new EmbedBuilder()
-      .setTitle(`🎫 Ticket nou: ${categoryName}`)
-      .setDescription(`Salut <@${user.id}>! Descrie problema ta în detaliu.`)
-      .setColor(embedColor);
-
-    const closeRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Închide Ticket').setStyle(ButtonStyle.Danger)
-    );
-
-    await ticketChannel.send({ content: `<@&${STAFF_ROLE_ID}> <@${user.id}>`, embeds: [ticketEmbed], components: [closeRow] });
-    await interaction.editReply({ content: `✅ Ticket creat: ${ticketChannel}` });
-  }
-
-  if (customId === 'close_ticket') {
-    await interaction.reply({ content: '🔒 Ticketul se va închide în 5 secunde...', ephemeral: true });
-    setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+    return;
   }
 });
 
 client.login(process.env.DISCORD_TOKEN
-  
