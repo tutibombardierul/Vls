@@ -32,7 +32,8 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildBans
+    GatewayIntentBits.GuildBans,
+    GatewayIntentBits.GuildVoiceStates
   ]
 });
 
@@ -43,16 +44,94 @@ const GUILD_ID = '1455317975191126219';
 const userMessageTracker = new Map();
 const userLastMessage = new Map();
 
+const userNotes = new Map(); 
+const userCases = new Map(); 
+
 const commands = [
-  new SlashCommandBuilder()
-    .setName('setup-verify')
-    .setDescription('Trimite panoul de verificare.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('setup-verify').setDescription('Trimite panoul de verificare.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('ticket-setup').setDescription('Panou de Suport Ticket.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
-    .setName('ticket-setup')
-    .setDescription('Panou de Suport Ticket.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setName('rps')
+    .setDescription('Joacă Piatră, Hârtie, Foarfecă cu botul!')
+    .addStringOption(opt => 
+      opt.setName('alegere').setDescription('Alege opțiunea ta').setRequired(true)
+         .addChoices(
+           { name: '🪨 Piatră', value: 'piatra' },
+           { name: '📄 Hârtie', value: 'hartie' },
+           { name: '✂️ Foarfecă', value: 'foarfece' }
+         )
+    ),
+
+  // Comenzi exacte din video
+  new SlashCommandBuilder()
+    .setName('ban-add')
+    .setDescription('Banează un utilizator de pe server.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
+
+  new SlashCommandBuilder()
+    .setName('ban-remove')
+    .setDescription('Elimină un ban de la un utilizator.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .addStringOption(opt => opt.setName('userid').setDescription('ID utilizator').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('ban-temp')
+    .setDescription('Banează temporar un utilizator.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addIntegerOption(opt => opt.setName('ore').setDescription('Număr de ore').setRequired(true))
+    .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
+
+  new SlashCommandBuilder()
+    .setName('mute-add')
+    .setDescription('Timeout / Mute pentru un membru.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addIntegerOption(opt => opt.setName('minute').setDescription('Minute').setRequired(true))
+    .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
+
+  new SlashCommandBuilder()
+    .setName('mute-remove')
+    .setDescription('Scoate timeout-ul (unmute).')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('role-add')
+    .setDescription('ADMIN ONLY - Adaugă un rol unui membru.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addRoleOption(opt => opt.setName('rol').setDescription('Rolul').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('role-remove')
+    .setDescription('ADMIN ONLY - Scoate un rol unui membru.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addRoleOption(opt => opt.setName('rol').setDescription('Rolul').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('role-temp')
+    .setDescription('ADMIN ONLY - Dă un rol temporar.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addRoleOption(opt => opt.setName('rol').setDescription('Rolul').setRequired(true))
+    .addIntegerOption(opt => opt.setName('minute').setDescription('Minute').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('voice-deaf')
+    .setDescription('Dă deafen și mute unui membru în canalul vocal.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.MuteMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('voice-undeaf')
+    .setDescription('Scoate deafen și unmate în canalul vocal.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.MuteMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('kick')
@@ -62,87 +141,91 @@ const commands = [
     .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
 
   new SlashCommandBuilder()
-    .setName('ban')
-    .setDescription('Banează un membru de pe server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
-    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
-    .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
+    .setName('case-view')
+    .setDescription('Vezi detaliile unui caz.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addIntegerOption(opt => opt.setName('caseid').setDescription('ID Caz').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('unban')
-    .setDescription('Deblochează un utilizator.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
-    .addStringOption(opt => opt.setName('userid').setDescription('ID-ul utilizatorului').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('timeout')
-    .setDescription('Mute temporar.')
+    .setName('note-add')
+    .setDescription('Adaugă o notă de moderare unui utilizator.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
-    .addIntegerOption(opt => opt.setName('minute').setDescription('Minute').setRequired(true))
-    .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
+    .addStringOption(opt => opt.setName('nota').setDescription('Textul notei').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('unmute')
-    .setDescription('Scoate pauza (Timeout).')
+    .setName('note-remove')
+    .setDescription('Șterge o notă de moderare.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addIntegerOption(opt => opt.setName('index').setDescription('Numărul notei').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('note-view')
+    .setDescription('Vezi notele de moderare ale unui utilizator.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('clear')
-    .setDescription('Șterge un număr de mesaje.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
-    .addIntegerOption(opt => opt.setName('numar').setDescription('Numărul de mesaje (1-100)').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('warn')
-    .setDescription('Avertizează un membru.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .setName('case-remove')
+    .setDescription('Elimină un caz din istoricul unui utilizator.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
-    .addStringOption(opt => opt.setName('motiv').setDescription('Motivul').setRequired(true)),
+    .addIntegerOption(opt => opt.setName('caseid').setDescription('ID Caz').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('lock')
-    .setDescription('Blochează canalul curent.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-
-  new SlashCommandBuilder()
-    .setName('unlock')
-    .setDescription('Deblochează canalul curent.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+    .setName('user-history')
+    .setDescription('Vezi istoricul de moderare al unui utilizator.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('slowmode')
-    .setDescription('Setează slowmode pe canal.')
+    .setDescription('Modifică slowmode-ul canalului selectat.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .addIntegerOption(opt => opt.setName('secunde').setDescription('Secunde').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('nuke')
-    .setDescription('Recreează canalul curent.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+    .setName('user-clear-history')
+    .setDescription('ADMIN ONLY - Șterge istoricul de moderare al unui utilizator.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('warn')
+    .setDescription('Avertizează un utilizator și trimite embed privat.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addStringOption(opt => opt.setName('motiv').setDescription('Motivul').setRequired(true)),
+
+  new SlashCommandBuilder().setName('ping').setDescription('Verifică latența botului!'),
+
+  new SlashCommandBuilder()
+    .setName('purge')
+    .setDescription('Șterge mesaje multiple dintr-un canal.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    .addIntegerOption(opt => opt.setName('numar').setDescription('Număr de mesaje').setRequired(true)),
+
+  new SlashCommandBuilder().setName('server-info').setDescription('Obține informații despre server!'),
+
+  new SlashCommandBuilder()
+    .setName('user-nick')
+    .setDescription('Modifică porecla (nickname) unui membru.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageNicknames)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addStringOption(opt => opt.setName('porecla').setDescription('Noua poreclă').setRequired(true)),
+
+  new SlashCommandBuilder().setName('channel-lock').setDescription('Blochează canalul curent.').setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+  new SlashCommandBuilder().setName('channel-unlock').setDescription('Deblochează canalul curent.').setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
   new SlashCommandBuilder()
     .setName('say')
-    .setDescription('Trimite un mesaj prin bot.')
-    .addStringOption(opt => opt.setName('mesaj').setDescription('Mesajul').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('userinfo')
-    .setDescription('Informații despre utilizator.')
-    .addUserOption(opt => opt.setName('user').setDescription('Membru')),
-
-  new SlashCommandBuilder()
-    .setName('serverinfo')
-    .setDescription('Statistici server.'),
-
-  new SlashCommandBuilder()
-    .setName('ping')
-    .setDescription('Ping bot.')
+    .setDescription('Pune botul să spună ceva.')
+    .addStringOption(opt => opt.setName('mesaj').setDescription('Mesajul').setRequired(true))
 ].map(cmd => cmd.toJSON());
 
 client.once('ready', async () => {
-  console.log('VLS BOT este ONLINE cu Securitate Maximă!');
+  console.log('VLS BOT este ONLINE cu comenzile din video!');
   client.user.setActivity('🔒 Security Active', { type: ActivityType.Watching });
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -151,7 +234,7 @@ client.once('ready', async () => {
       Routes.applicationGuildCommands(client.user.id, GUILD_ID), 
       { body: commands }
     );
-    console.log('Comenzile Slash au fost actualizate instant pe server!');
+    console.log('Comenzile din video au fost înregistrate cu succes pe server!');
   } catch (err) {
     console.error('Eroare la comenzi:', err);
   }
@@ -276,7 +359,7 @@ client.on('interactionCreate', async (interaction) => {
 
     let categoryName = 'General Support';
     let prefix = 'support';
-    let embedColor = 0x5865F2;
+    let embedColor = 0x0077b6;
 
     if (customId === 'tk_reward') { categoryName = '🎁 Claim Reward'; prefix = 'reward'; embedColor = 0x57F287; }
     if (customId === 'tk_report') { categoryName = '🚨 Report User'; prefix = 'report'; embedColor = 0xED4245; }
@@ -320,23 +403,66 @@ client.on('interactionCreate', async (interaction) => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName, options, guild, channel, member: executor } = interaction;
+  const { commandName, options, guild, channel, member: executor, user: executorUser } = interaction;
   const botMember = guild.members.me;
+
+  const logCase = (targetId, action, reason) => {
+    if (!userCases.has(targetId)) userCases.set(targetId, []);
+    const list = userCases.get(targetId);
+    const caseId = Math.floor(100000 + Math.random() * 900000);
+    list.push({ caseId, action, reason, moderator: executorUser.tag, time: Date.now() });
+    return caseId;
+  };
+
+  if (commandName === 'rps') {
+    await interaction.deferReply({ ephemeral: false });
+    const userChoice = options.getString('alegere');
+    const choices = ['piatra', 'hartie', 'foarfece'];
+    const botChoice = choices[Math.floor(Math.random() * choices.length)];
+
+    const emojis = { piatra: '🪨 Piatră', hartie: '📄 Hârtie', foarfece: '✂️ Foarfecă' };
+    let result = '';
+    let color = 0x0077b6;
+
+    if (userChoice === botChoice) {
+      result = '🤝 **Egalitate!** Amândoi am ales ' + emojis[userChoice] + '.';
+      color = 0xFEE75C;
+    } else if (
+      (userChoice === 'piatra' && botChoice === 'foarfece') ||
+      (userChoice === 'hartie' && botChoice === 'piatra') ||
+      (userChoice === 'foarfece' && botChoice === 'hartie')
+    ) {
+      result = '🎉 **Felicitări, ai câștigat!** Alegerea ta (' + emojis[userChoice] + ') bate alegerea mea (' + emojis[botChoice] + ').';
+      color = 0x57F287;
+    } else {
+      result = '😢 **Ai pierdut!** Alegerea mea (' + emojis[botChoice] + ') bate alegerea ta (' + emojis[userChoice] + ').';
+      color = 0xED4245;
+    }
+
+    const rpsEmbed = new EmbedBuilder()
+      .setTitle('🎮 Piatră, Hârtie, Foarfecă')
+      .setColor(color)
+      .addFields(
+        { name: '👤 Alegerea ta:', value: emojis[userChoice], inline: true },
+        { name: '🤖 Alegerea mea:', value: emojis[botChoice], inline: true },
+        { name: '🏆 Rezultat:', value: result, inline: false }
+      )
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [rpsEmbed] });
+    return;
+  }
 
   if (commandName === 'setup-verify') {
     await interaction.deferReply({ ephemeral: true });
-
     const verifyEmbed = new EmbedBuilder()
       .setTitle('🛡️ CENTRU DE VERIFICARE')
       .setDescription('Apasă pe butonul de mai jos pentru a primi accesul complet.')
-      .setColor(0x5865F2)
-      .setFooter({ text: 'VLS Community Verification' });
+      .setColor(0x0077b6)
+ .setFooter({ text: 'VLS Community Verification' });
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('btn_verify_me')
-        .setLabel('Verifică-te 🛡️')
-        .setStyle(ButtonStyle.Success)
+      new ButtonBuilder().setCustomId('btn_verify_me').setLabel('Verifică-te 🛡️').setStyle(ButtonStyle.Success)
     );
 
     await interaction.channel.send({ embeds: [verifyEmbed], components: [row] });
@@ -346,21 +472,15 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'ticket-setup') {
     await interaction.deferReply({ ephemeral: true });
-    
     const embed = new EmbedBuilder()
-      .setColor(0x5865F2)
+      .setColor(0x0077b6)
       .setDescription(
         '# 🎫 CENTRU DE SUPORT\n' +
-        '***Ai nevoie de ajutor? Selectează categoria potrivită din meniul de mai jos și deschide un ticket. Echipa noastră îți va răspunde cât mai curând posibil.***\n\n' +
-        '## 🎁 Claim Reward\n' +
-        '**Deschide un ticket pentru a revendica un premiu sau o recompensă. Te rugăm să atașezi dovezile necesare.**\n\n' +
-        '## 🚨 Report a User\n' +
-        '**Raportează un utilizator care a încălcat regulamentul. Include ID-ul utilizatorului, motivul raportării și dovezi clare.**\n\n' +
-        '## 🛡️ General Support\n' +
-        '**Pentru întrebări, probleme sau orice alt tip de ajutor care nu se încadrează în categoriile de mai sus.**\n\n' +
-        '-# Nu deschide ticket-uri fără motiv și nu contacta membrii staff-ului în privat. Abuzul sistemului de suport poate duce la sancțiuni.'
-      )
-      .setImage('https://cdn.discordapp.com/attachments/1527382497342783568/1530170988682285177/standard_29.gif?ex=6a6b31c8&is=6a69e048&hm=ec0f08c269ade7cc79a65f6316d2d80e57e0f15258fdc1e58b37fa67e648074b&');
+        '***Ai nevoie de ajutor? Selectează categoria potrivită și deschide un ticket.***\n\n' +
+        '## 🎁 Claim Reward\nDeschide un ticket pentru a revendica un premiu.\n\n' +
+        '## 🚨 Report a User\nRaportează un utilizator care a încălcat regulamentul.\n\n' +
+        '## 🛡️ General Support\nPentru întrebări și asistență generală.'
+      );
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('tk_support').setLabel('Suport General').setStyle(ButtonStyle.Primary),
@@ -380,67 +500,207 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  if (commandName === 'userinfo') {
-    await interaction.deferReply({ ephemeral: false });
-    const userTarget = options.getUser('user') || interaction.user;
-    const memberTarget = await guild.members.fetch(userTarget.id).catch(() => null);
-
-    const embed = new EmbedBuilder()
-      .setTitle('👤 Informații utilizator - ' + userTarget.tag)
-      .setThumbnail(userTarget.displayAvatarURL({ dynamic: true }))
-      .setColor(0x5865F2)
-      .addFields(
-        { name: '🆔 ID Utilizator:', value: userTarget.id, inline: true },
-        { name: '📅 Cont Creat:', value: '<t:' + Math.floor(userTarget.createdTimestamp / 1000) + ':R>', inline: true },
-        { name: '📥 Alăturat pe Server:', value: memberTarget ? '<t:' + Math.floor(memberTarget.joinedTimestamp / 1000) + ':R>' : 'N/A', inline: true }
-      )
-      .setTimestamp();
-
-    await interaction.editReply({ embeds: [embed] });
-    return;
-  }
-
-  if (commandName === 'serverinfo') {
-    await interaction.deferReply({ ephemeral: false });
-    const embed = new EmbedBuilder()
-      .setTitle('📊 Informații Server - ' + guild.name)
-      .setThumbnail(guild.iconURL({ dynamic: true }))
-      .setColor(0x5865F2)
-      .addFields(
-        { name: '👑 Owner:', value: '<@' + guild.ownerId + '>', inline: true },
-        { name: '👥 Membri Totali:', value: '' + guild.memberCount, inline: true },
-        { name: '💬 Canale:', value: '' + guild.channels.cache.size, inline: true },
-        { name: '📅 Creat pe:', value: '<t:' + Math.floor(guild.createdTimestamp / 1000) + ':R>', inline: true }
-      )
-      .setTimestamp();
-
-    await interaction.editReply({ embeds: [embed] });
-    return;
-  }
-
   if (commandName === 'ping') {
     await interaction.reply({ content: 'Pong! 🏓 **' + client.ws.ping + 'ms**', ephemeral: false });
     return;
   }
 
-  if (commandName === 'warn') {
+  if (commandName === 'server-info') {
+    await interaction.deferReply({ ephemeral: false });
+    const embed = new EmbedBuilder()
+      .setTitle('📊 Informații Server - ' + guild.name)
+      .setThumbnail(guild.iconURL({ dynamic: true }))
+      .setColor(0x0077b6)
+      .addFields(
+        { name: '👑 Owner:', value: '<@' + guild.ownerId + '>', inline: true },
+        { name: '👥 Membri Totali:', value: '' + guild.memberCount, inline: true },
+        { name: '💬 Canale:', value: '' + guild.channels.cache.size, inline: true }
+      )
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
+    return;
+  }
+
+  if (commandName === 'purge') {
+    await interaction.deferReply({ ephemeral: true });
+    const amount = options.getInteger('numar');
+    await channel.bulkDelete(amount, true).catch(() => {});
+    await interaction.editReply({ content: '🧹 Am șters **' + amount + '** mesaje!' });
+    return;
+  }
+
+  if (commandName === 'channel-lock') {
+    await interaction.deferReply({ ephemeral: true });
+    await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false });
+    await interaction.editReply({ content: '🔒 Canal blocat!' });
+    return;
+  }
+
+  if (commandName === 'channel-unlock') {
+    await interaction.deferReply({ ephemeral: true });
+    await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null });
+    await interaction.editReply({ content: '🔓 Canal deblocat!' });
+    return;
+  }
+
+  if (commandName === 'slowmode') {
+    await interaction.deferReply({ ephemeral: true });
+    const seconds = options.getInteger('secunde');
+    await channel.setRateLimitPerUser(seconds);
+    await interaction.editReply({ content: '⏱️ Slowmode setat la ' + seconds + ' secunde!' });
+    return;
+  }
+
+  if (commandName === 'user-nick') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
-    const reason = options.getString('motiv');
+    const newNick = options.getString('porecla');
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
     if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
 
     const err = checkHierarchy(executor, targetMember, botMember);
     if (err) return interaction.editReply({ content: '❌ ' + err });
 
-    const warnEmbed = new EmbedBuilder()
-      .setTitle('⚠️ Avertisment Primit')
-      .setColor(0xFEE75C)
-      .setDescription('Ai fost avertizat pe serverul **' + guild.name + '**!\n**Motiv:** ' + reason)
-      .setTimestamp();
+    await targetMember.setNickname(newNick).catch(() => {});
+    await interaction.editReply({ content: '✅ Porecla lui **' + target.tag + '** a fost modificată!' });
+    return;
+  }
 
-    await target.send({ embeds: [warnEmbed] }).catch(() => {});
-    await interaction.editReply({ content: '⚠️ **' + target.tag + '** a fost avertizat!' });
+  // Executare comenzi din video
+  if (commandName === 'ban-add') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const reason = options.getString('motiv') || 'Fără motiv';
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (targetMember) {
+      const err = checkHierarchy(executor, targetMember, botMember);
+      if (err) return interaction.editReply({ content: '❌ ' + err });
+    }
+    const caseId = logCase(target.id, 'Ban', reason);
+    await guild.members.ban(target, { reason }).catch(() => {});
+    await interaction.editReply({ content: '⛔ Utilizatorul a fost banat! (Caz #' + caseId + ')' });
+    return;
+  }
+
+  if (commandName === 'ban-remove') {
+    await interaction.deferReply({ ephemeral: true });
+    const userId = options.getString('userid');
+    try {
+      await guild.members.unban(userId);
+      await interaction.editReply({ content: '✅ Banul a fost scos pentru ID-ul ' + userId + '!' });
+    } catch {
+      await interaction.editReply({ content: '❌ Nu s-a găsit niciun ban activ pe acest ID.' });
+    }
+    return;
+  }
+
+  if (commandName === 'ban-temp') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const hours = options.getInteger('ore');
+    const reason = options.getString('motiv') || 'Fără motiv';
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (targetMember) {
+      const err = checkHierarchy(executor, targetMember, botMember);
+      if (err) return interaction.editReply({ content: '❌ ' + err });
+    }
+    const caseId = logCase(target.id, `Temp-Ban (${hours}h)`, reason);
+    await guild.members.ban(target, { reason }).catch(() => {});
+    setTimeout(async () => {
+      await guild.members.unban(target.id).catch(() => {});
+    }, hours * 60 * 60 * 1000);
+
+    await interaction.editReply({ content: '⏱️ Utilizatorul a primit ban temporar ' + hours + ' ore! (Caz #' + caseId + ')' });
+    return;
+  }
+
+  if (commandName === 'mute-add') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const minutes = options.getInteger('minute');
+    const reason = options.getString('motiv') || 'Fără motiv';
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
+
+    const err = checkHierarchy(executor, targetMember, botMember);
+    if (err) return interaction.editReply({ content: '❌ ' + err });
+
+    const caseId = logCase(target.id, `Timeout (${minutes}m)`, reason);
+    await targetMember.timeout(minutes * 60 * 1000, reason).catch(() => {});
+    await interaction.editReply({ content: '🔇 Timeout aplicat pentru ' + minutes + ' minute! (Caz #' + caseId + ')' });
+    return;
+  }
+
+  if (commandName === 'mute-remove') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
+    await targetMember.timeout(null).catch(() => {});
+    await interaction.editReply({ content: '🔊 Timeout scos pentru **' + target.tag + '**!' });
+    return;
+  }
+
+  if (commandName === 'role-add') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const role = options.getRole('rol');
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
+
+    await targetMember.roles.add(role).catch(() => {});
+    await interaction.editReply({ content: '✅ Rolul <@&' + role.id + '> a fost adăugat lui **' + target.tag + '**!' });
+    return;
+  }
+
+  if (commandName === 'role-remove') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const role = options.getRole('rol');
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
+
+    await targetMember.roles.remove(role).catch(() => {});
+    await interaction.editReply({ content: '✅ Rolul <@&' + role.id + '> a fost scos de la **' + target.tag + '**!' });
+    return;
+  }
+
+  if (commandName === 'role-temp') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const role = options.getRole('rol');
+    const minutes = options.getInteger('minute');
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
+
+    await targetMember.roles.add(role).catch(() => {});
+    setTimeout(async () => {
+      await targetMember.roles.remove(role).catch(() => {});
+    }, minutes * 60 * 1000);
+
+    await interaction.editReply({ content: '⏱️ Rolul <@&' + role.id + '> a fost dat temporar (' + minutes + ' minute) lui **' + target.tag + '**!' });
+    return;
+  }
+
+  if (commandName === 'voice-deaf') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember || !targetMember.voice.channel) return interaction.editReply({ content: '❌ Membrul nu este într-un canal vocal!' });
+
+    await targetMember.voice.setDeaf(true).catch(() => {});
+    await interaction.editReply({ content: '🔇 Utilizatorul a primit deafen în canalul vocal.' });
+    return;
+  }
+
+  if (commandName === 'voice-undeaf') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    const targetMember = await guild.members.fetch(target.id).catch(() => null);
+    if (!targetMember || !targetMember.voice.channel) return interaction.editReply({ content: '❌ Membrul nu este într-un canal vocal!' });
+
+    await targetMember.voice.setDeaf(false).catch(() => {});
+    await interaction.editReply({ content: '🔊 S-a scos deafen-ul din canalul vocal.' });
     return;
   }
 
@@ -454,100 +714,134 @@ client.on('interactionCreate', async (interaction) => {
     const err = checkHierarchy(executor, targetMember, botMember);
     if (err) return interaction.editReply({ content: '❌ ' + err });
 
+    const caseId = logCase(target.id, 'Kick', reason);
     await targetMember.kick(reason).catch(() => {});
-    await interaction.editReply({ content: '✅ **' + target.tag + '** a primit kick.' });
+    await interaction.editReply({ content: '✅ Utilizatorul a primit kick. (Caz #' + caseId + ')' });
     return;
   }
 
-  if (commandName === 'ban') {
+  if (commandName === 'warn') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
-    const reason = options.getString('motiv') || 'Fără motiv';
-    const targetMember = await guild.members.fetch(target.id).catch(() => null);
-    if (targetMember) {
-      const err = checkHierarchy(executor, targetMember, botMember);
-      if (err) return interaction.editReply({ content: '❌ ' + err });
-    }
-    await guild.members.ban(target, { reason }).catch(() => {});
-    await interaction.editReply({ content: '⛔ **' + target.tag + '** a fost banat!' });
-    return;
-  }
-
-  if (commandName === 'unban') {
-    await interaction.deferReply({ ephemeral: true });
-    const userId = options.getString('userid');
-    try {
-      await guild.members.unban(userId);
-      await interaction.editReply({ content: '✅ Utilizatorul a primit unban!' });
-    } catch {
-      await interaction.editReply({ content: '❌ Nu s-a găsit niciun ban pe acest ID.' });
-    }
-    return;
-  }
-
-  if (commandName === 'timeout') {
-    await interaction.deferReply({ ephemeral: true });
-    const target = options.getUser('user');
-    const minutes = options.getInteger('minute');
-    const reason = options.getString('motiv') || 'Fără motiv';
+    const reason = options.getString('motiv');
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
     if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
 
     const err = checkHierarchy(executor, targetMember, botMember);
     if (err) return interaction.editReply({ content: '❌ ' + err });
 
-    await targetMember.timeout(minutes * 60 * 1000, reason).catch(() => {});
-    await interaction.editReply({ content: '🔇 **' + target.tag + '** a primit timeout (' + minutes + 'm).' });
+    const caseId = logCase(target.id, 'Warn', reason);
+    const timestampNow = '<t:' + Math.floor(Date.now() / 1000) + ':R>';
+
+    const warnEmbed = new EmbedBuilder()
+      .setTitle('❗ Punishment Issued')
+      .setColor(0x0077b6)
+      .setDescription(
+        'You received a punishment from our server staff for breaking the server rules. Please check the details below:\n\n' +
+        '- **Punishment:** Warn\n' +
+        '- **Moderator:** <@' + executorUser.id + '>\n' +
+        '- **Time:** ' + timestampNow + '\n' +
+        '- **Case ID:** #' + caseId + '\n' +
+        '- **Reason:** ' + reason
+      )
+      .setFooter({ text: guild.name + ' Moderation Team' })
+      .setTimestamp();
+
+    await target.send({ embeds: [warnEmbed] }).catch(() => {});
+    await interaction.editReply({ content: '⚠️ **' + target.tag + '** a fost avertizat și notificat în privat! (Caz #' + caseId + ')' });
     return;
   }
 
-  if (commandName === 'unmute') {
+  if (commandName === 'case-view') {
+    await interaction.deferReply({ ephemeral: true });
+    const caseId = options.getInteger('caseid');
+    let found = null;
+    for (let [uid, cases] of userCases.entries()) {
+      const c = cases.find(x => x.caseId === caseId);
+      if (c) { found = c; break; }
+    }
+    if (!found) return interaction.editReply({ content: '❌ Cazul #' + caseId + ' nu a fost găsit!' });
+
+    const embed = new EmbedBuilder()
+      .setTitle('🔍 Detalii Caz #' + found.caseId)
+      .setColor(0x0077b6)
+      .addFields(
+        { name: '🛠️ Acțiune:', value: found.action, inline: true },
+        { name: '🛡️ Moderator:', value: found.moderator, inline: true },
+        { name: '📝 Motiv:', value: found.reason, inline: false }
+      )
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
+    return;
+  }
+
+  if (commandName === 'case-remove') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
-    const targetMember = await guild.members.fetch(target.id).catch(() => null);
-    if (!targetMember) return interaction.editReply({ content: '❌ Membrul nu a fost găsit!' });
-    await targetMember.timeout(null).catch(() => {});
-    await interaction.editReply({ content: '🔊 Timeout scos pentru **' + target.tag + '**!' });
+    const caseId = options.getInteger('caseid');
+    if (userCases.has(target.id)) {
+      let list = userCases.get(target.id);
+      userCases.set(target.id, list.filter(c => c.caseId !== caseId));
+    }
+    await interaction.editReply({ content: '✅ Cazul #' + caseId + ' a fost șters din istoricul utilizatorului!' });
     return;
   }
 
-  if (commandName === 'clear') {
+  if (commandName === 'note-add') {
     await interaction.deferReply({ ephemeral: true });
-    const amount = options.getInteger('numar');
-    await channel.bulkDelete(amount, true).catch(() => {});
-    await interaction.editReply({ content: '🧹 Am șters **' + amount + '** mesaje!' });
+    const target = options.getUser('user');
+    const nota = options.getString('nota');
+    if (!userNotes.has(target.id)) userNotes.set(target.id, []);
+    userNotes.get(target.id).push({ nota, moderator: executorUser.tag, time: Date.now() });
+    await interaction.editReply({ content: '✅ Notă adaugată cu succes pentru **' + target.tag + '**!' });
     return;
   }
 
-  if (commandName === 'lock') {
+  if (commandName === 'note-view') {
     await interaction.deferReply({ ephemeral: true });
-    await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false, SendMessagesInThreads: false });
-    await interaction.editReply({ content: '🔒 Canal blocat!' });
+    const target = options.getUser('user');
+    const notes = userNotes.get(target.id) || [];
+    if (notes.length === 0) return interaction.editReply({ content: 'ℹ️ Utilizatorul nu are nicio notă înregistrată.' });
+
+    let desc = notes.map((n, idx) => `**#${idx + 1}** - ${n.nota} *(de ${n.moderator})*`).join('\n');
+    const embed = new EmbedBuilder().setTitle('📝 Note pentru ' + target.tag).setDescription(desc).setColor(0x0077b6);
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
 
-  if (commandName === 'unlock') {
+  if (commandName === 'note-remove') {
     await interaction.deferReply({ ephemeral: true });
-    await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null, SendMessagesInThreads: null });
-    await interaction.editReply({ content: '🔓 Canal deblocat!' });
+    const target = options.getUser('user');
+    const index = options.getInteger('index') - 1;
+    if (userNotes.has(target.id)) {
+      let notes = userNotes.get(target.id);
+      if (notes[index]) {
+        notes.splice(index, 1);
+        return interaction.editReply({ content: '✅ Nota a fost ștearsă!' });
+      }
+    }
+    await interaction.editReply({ content: '❌ Indexul notei nu a fost găsit.' });
     return;
   }
 
-  if (commandName === 'slowmode') {
+  if (commandName === 'user-history') {
     await interaction.deferReply({ ephemeral: true });
-    const seconds = options.getInteger('secunde');
-    await channel.setRateLimitPerUser(seconds);
-    await interaction.editReply({ content: seconds === 0 ? '🚀 Slowmode dezactivat!' : '⏱️ Slowmode setat la ' + seconds + 's!' });
+    const target = options.getUser('user');
+    const cases = userCases.get(target.id) || [];
+    if (cases.length === 0) return interaction.editReply({ content: 'ℹ️ Utilizatorul nu are niciun istoric de moderare.' });
+
+    let desc = cases.map(c => `**[Caz #${c.caseId}]** ${c.action} - Motiv: *${c.reason}*`).join('\n');
+    const embed = new EmbedBuilder().setTitle('📊 Istoric moderare: ' + target.tag).setDescription(desc).setColor(0x0077b6);
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
 
-  if (commandName === 'nuke') {
+  if (commandName === 'user-clear-history') {
     await interaction.deferReply({ ephemeral: true });
-    const pos = channel.position;
-    const newChan = await channel.clone();
-    await channel.delete();
-    await newChan.setPosition(pos);
-    await newChan.send('💣 **Canalul a fost curățat complet!**');
+    const target = options.getUser('user');
+    userCases.delete(target.id);
+    userNotes.delete(target.id);
+    await interaction.editReply({ content: '✅ Istoricul și notele utilizatorului au fost resetate complet!' });
     return;
   }
 });
