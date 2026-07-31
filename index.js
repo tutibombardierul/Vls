@@ -8,7 +8,8 @@ app.get('/', (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
   console.log('Server web pornit cu succes pe portul ' + port);
-});const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
+});
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
 
 // ID-urile serverului tău
 const TICKET_CATEGORY_ID = '1530184638893522984';
@@ -193,7 +194,7 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// HANDLER PENTRU INTERACȚIUNI (Slash Commands, Menus, Buttons)
+// HANDLER PENTRU INTERACȚIUNI
 client.on('interactionCreate', async (interaction) => {
 
   // Slash Commands
@@ -345,10 +346,10 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // Meniu Selectare Categorie Ticket (Aici se folosește deferReply pentru a preveni erorile de timeout)
+  // Meniu Selectare Categorie Ticket
   if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select_menu') {
     
-    // Anunțăm Discord că procesăm cererea (previne timeout-ul de 3 secunde)
+    // Anunțăm Discord că procesăm cererea (previne timeout-ul)
     await interaction.deferReply({ ephemeral: true });
 
     if (activeTicketCreations.has(interaction.user.id)) {
@@ -384,16 +385,31 @@ client.on('interactionCreate', async (interaction) => {
 
       const ticketName = `『🎫』${cleanUsername}-${type}`;
 
-      // Creare canal în categoria cerută
+      // Configurare permisiuni în mod sigur
+      const permissionOverwrites = [
+        { id: interaction.guild.id, deny: ['ViewChannel'] },
+        { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
+      ];
+
+      // Verificăm dacă rolul de staff există pe server
+      const staffRoleExists = interaction.guild.roles.cache.has(STAFF_ROLE_ID);
+      if (staffRoleExists) {
+        permissionOverwrites.push({
+          id: STAFF_ROLE_ID,
+          allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory']
+        });
+      }
+
+      // Verificăm dacă categoria există pe server
+      const categoryChannel = interaction.guild.channels.cache.get(TICKET_CATEGORY_ID);
+      const parentCategoryId = (categoryChannel && categoryChannel.type === ChannelType.GuildCategory) ? TICKET_CATEGORY_ID : null;
+
+      // Creare canal
       const channel = await interaction.guild.channels.create({
         name: ticketName,
         type: ChannelType.GuildText,
-        parent: TICKET_CATEGORY_ID,
-        permissionOverwrites: [
-          { id: interaction.guild.id, deny: ['ViewChannel'] },
-          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
-          { id: STAFF_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
-        ]
+        parent: parentCategoryId,
+        permissionOverwrites: permissionOverwrites
       });
 
       const ticketEmbed = new EmbedBuilder()
@@ -408,13 +424,17 @@ client.on('interactionCreate', async (interaction) => {
         new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
       );
 
-      // Tag membru + rol Staff
-      await channel.send({ content: `<@${interaction.user.id}> <@&${STAFF_ROLE_ID}>`, embeds: [ticketEmbed], components: [row] });
+      // Ping membru + rol Staff (dacă există)
+      const pingContent = staffRoleExists ? `<@${interaction.user.id}> <@&${STAFF_ROLE_ID}>` : `<@${interaction.user.id}>`;
+      await channel.send({ content: pingContent, embeds: [ticketEmbed], components: [row] });
+
       await interaction.editReply({ content: `Tichetul tău a fost creat: ${channel}` });
 
     } catch (err) {
-      console.error('Eroare creare ticket:', err);
-      await interaction.editReply({ content: '❌ A apărut o eroare la crearea ticketului. Verifică permisiunile botului!' });
+      console.error('❌ Eroare detaliată la crearea ticketului:', err);
+      await interaction.editReply({ 
+        content: `❌ Nu am putut crea ticketul! Detaliu eroare: \`${err.message}\`. Verifică dacă botul are rolul poziționat suficient de sus în setările serverului și permisiunea **Manage Channels** activă!` 
+      });
     } finally {
       activeTicketCreations.delete(interaction.user.id);
     }
