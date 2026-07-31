@@ -46,6 +46,7 @@ const userLastMessage = new Map();
 
 const userNotes = new Map(); 
 const userCases = new Map(); 
+const userWarns = new Map(); 
 
 const commands = [
   new SlashCommandBuilder().setName('setup-verify').setDescription('Trimite panoul de verificare.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
@@ -63,22 +64,21 @@ const commands = [
          )
     ),
 
-  // Comenzi exacte din video
   new SlashCommandBuilder()
-    .setName('ban-add')
+    .setName('ban')
     .setDescription('Banează un utilizator de pe server.')
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
     .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
 
   new SlashCommandBuilder()
-    .setName('ban-remove')
+    .setName('unban')
     .setDescription('Elimină un ban de la un utilizator.')
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addStringOption(opt => opt.setName('userid').setDescription('ID utilizator').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('ban-temp')
+    .setName('tempban')
     .setDescription('Banează temporar un utilizator.')
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
@@ -86,7 +86,7 @@ const commands = [
     .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
 
   new SlashCommandBuilder()
-    .setName('mute-add')
+    .setName('mute')
     .setDescription('Timeout / Mute pentru un membru.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
@@ -94,7 +94,7 @@ const commands = [
     .addStringOption(opt => opt.setName('motiv').setDescription('Motivul')),
 
   new SlashCommandBuilder()
-    .setName('mute-remove')
+    .setName('unmute')
     .setDescription('Scoate timeout-ul (unmute).')
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
@@ -129,7 +129,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('voice-undeaf')
-    .setDescription('Scoate deafen și unmate în canalul vocal.')
+    .setDescription('Scoate deafen și unmute în canalul vocal.')
     .setDefaultMemberPermissions(PermissionFlagsBits.MuteMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true)),
 
@@ -193,10 +193,17 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('warn')
-    .setDescription('Avertizează un utilizator și trimite embed privat.')
+    .setDescription('Avertizează un utilizator (3 warn-uri = mute automat 24h).')
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
     .addStringOption(opt => opt.setName('motiv').setDescription('Motivul').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('rwarn')
+    .setDescription('Șterge/scade un avertisment de la un utilizator.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(true))
+    .addIntegerOption(opt => opt.setName('cantitate').setDescription('Câte warn-uri să fie scăzute (implicit 1)').setRequired(false)),
 
   new SlashCommandBuilder().setName('ping').setDescription('Verifică latența botului!'),
 
@@ -207,6 +214,11 @@ const commands = [
     .addIntegerOption(opt => opt.setName('numar').setDescription('Număr de mesaje').setRequired(true)),
 
   new SlashCommandBuilder().setName('server-info').setDescription('Obține informații despre server!'),
+
+  new SlashCommandBuilder()
+    .setName('user-info')
+    .setDescription('Obține informații despre un utilizator.')
+    .addUserOption(opt => opt.setName('user').setDescription('Membru').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('user-nick')
@@ -225,7 +237,7 @@ const commands = [
 ].map(cmd => cmd.toJSON());
 
 client.once('ready', async () => {
-  console.log('VLS BOT este ONLINE cu comenzile din video!');
+  console.log('VLS BOT este ONLINE cu toate comenzile actualizate!');
   client.user.setActivity('🔒 Security Active', { type: ActivityType.Watching });
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -234,7 +246,7 @@ client.once('ready', async () => {
       Routes.applicationGuildCommands(client.user.id, GUILD_ID), 
       { body: commands }
     );
-    console.log('Comenzile din video au fost înregistrate cu succes pe server!');
+    console.log('Comenzile au fost înregistrate cu succes pe server!');
   } catch (err) {
     console.error('Eroare la comenzi:', err);
   }
@@ -254,70 +266,6 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
-client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.guild) return;
-
-  const member = message.member;
-  if (!member) return;
-
-  const isStaff = member.permissions.has(PermissionFlagsBits.Administrator) || member.roles.cache.has(STAFF_ROLE_ID);
-  if (isStaff) return;
-
-  const urlRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.(gg|io|me|li|com\/invite)\/[^\s]+)/i;
-  if (urlRegex.test(message.content)) {
-    await message.delete().catch(() => {});
-    const warnLink = await message.channel.send('🚨 <@' + message.author.id + '>, link-urile și invitațiile sunt strict interzise!');
-    setTimeout(() => warnLink.delete().catch(() => {}), 5000);
-    return;
-  }
-
-  const hasEveryoneOrHere = message.mentions.everyone;
-  const totalMentions = message.mentions.users.size + message.mentions.roles.size;
-
-  if (hasEveryoneOrHere || totalMentions > 2) {
-    await message.delete().catch(() => {});
-    await member.timeout(60 * 60 * 1000, 'Securitate: Mass-Ping sau Everyone Raid').catch(() => {});
-    const warnPing = await message.channel.send('🛡️ <@' + message.author.id + '> a primit TIMEOUT 1 ORĂ pentru Mass-Ping / Everyone!');
-    setTimeout(() => warnPing.delete().catch(() => {}), 7000);
-    return;
-  }
-
-  const userId = message.author.id;
-  const now = Date.now();
-
-  if (userLastMessage.has(userId)) {
-    const lastData = userLastMessage.get(userId);
-    if (lastData.content === message.content && (now - lastData.time) < 10000) {
-      await message.delete().catch(() => {});
-      await member.timeout(30 * 60 * 1000, 'Securitate: Spam mesaje identice').catch(() => {});
-      const warnDup = await message.channel.send('🛡️ <@' + message.author.id + '> a primit timeout 30 minute pentru spam identic!');
-      setTimeout(() => warnDup.delete().catch(() => {}), 6000);
-      userLastMessage.delete(userId);
-      return;
-    }
-  }
-  userLastMessage.set(userId, { content: message.content, time: now });
-
-  if (userMessageTracker.has(userId)) {
-    const userData = userMessageTracker.get(userId);
-    if (now - userData.firstMessageTime < 4000) {
-      userData.messageCount++;
-      if (userData.messageCount >= 4) {
-        await message.delete().catch(() => {});
-        await member.timeout(20 * 60 * 1000, 'Securitate: Flood / Spam rapid').catch(() => {});
-        const warnSpam = await message.channel.send('🛡️ <@' + message.author.id + '> a primit timeout 20 minute pentru flood!');
-        setTimeout(() => warnSpam.delete().catch(() => {}), 6000);
-        userMessageTracker.delete(userId);
-        return;
-      }
-    } else {
-      userMessageTracker.set(userId, { messageCount: 1, firstMessageTime: now });
-    }
-  } else {
-    userMessageTracker.set(userId, { messageCount: 1, firstMessageTime: now });
-  }
-});
-
 function checkHierarchy(executorMember, targetMember, botMember) {
   if (targetMember.id === executorMember.guild.ownerId) return 'Nu poți acționa asupra Ownerului!';
   if (targetMember.roles.highest.position >= executorMember.roles.highest.position && executorMember.id !== executorMember.guild.ownerId) {
@@ -329,6 +277,305 @@ function checkHierarchy(executorMember, targetMember, botMember) {
   return null;
 }
 
+const logCase = (guildId, targetId, action, reason, executorTag) => {
+  if (!userCases.has(targetId)) userCases.set(targetId, []);
+  const list = userCases.get(targetId);
+  const caseId = Math.floor(100000 + Math.random() * 900000);
+  list.push({ caseId, action, reason, moderator: executorTag, time: Date.now() });
+  return caseId;
+};
+
+// HANDLER PENTRU COMENZI TEXT CU PREFIXUL '-'
+client.on('messageCreate', async (message) => {
+  if (message.author.bot || !message.guild) return;
+
+  const member = message.member;
+  if (!member) return;
+
+  const isStaff = member.permissions.has(PermissionFlagsBits.Administrator) || member.roles.cache.has(STAFF_ROLE_ID);
+
+  if (!isStaff) {
+    const urlRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.(gg|io|me|li|com\/invite)\/[^\s]+)/i;
+    if (urlRegex.test(message.content)) {
+      await message.delete().catch(() => {});
+      const warnLink = await message.channel.send('🚨 <@' + message.author.id + '>, link-urile și invitațiile sunt strict interzise!');
+      setTimeout(() => warnLink.delete().catch(() => {}), 5000);
+      return;
+    }
+
+    const hasEveryoneOrHere = message.mentions.everyone;
+    const totalMentions = message.mentions.users.size + message.mentions.roles.size;
+
+    if (hasEveryoneOrHere || totalMentions > 2) {
+      await message.delete().catch(() => {});
+      await member.timeout(60 * 60 * 1000, 'Securitate: Mass-Ping sau Everyone Raid').catch(() => {});
+      const warnPing = await message.channel.send('🛡️ <@' + message.author.id + '> a primit TIMEOUT 1 ORĂ pentru Mass-Ping / Everyone!');
+      setTimeout(() => warnPing.delete().catch(() => {}), 7000);
+      return;
+    }
+
+    const userId = message.author.id;
+    const now = Date.now();
+
+    if (userLastMessage.has(userId)) {
+      const lastData = userLastMessage.get(userId);
+      if (lastData.content === message.content && (now - lastData.time) < 10000) {
+        await message.delete().catch(() => {});
+        await member.timeout(30 * 60 * 1000, 'Securitate: Spam mesaje identice').catch(() => {});
+        const warnDup = await message.channel.send('🛡️ <@' + message.author.id + '> a primit timeout 30 minute pentru spam identic!');
+        setTimeout(() => warnDup.delete().catch(() => {}), 6000);
+        userLastMessage.delete(userId);
+        return;
+      }
+    }
+    userLastMessage.set(userId, { content: message.content, time: now });
+
+    if (userMessageTracker.has(userId)) {
+      const userData = userMessageTracker.get(userId);
+      if (now - userData.firstMessageTime < 4000) {
+        userData.messageCount++;
+        if (userData.messageCount >= 4) {
+          await message.delete().catch(() => {});
+          await member.timeout(20 * 60 * 1000, 'Securitate: Flood / Spam rapid').catch(() => {});
+          const warnSpam = await message.channel.send('🛡️ <@' + message.author.id + '> a primit timeout 20 minute pentru flood!');
+          setTimeout(() => warnSpam.delete().catch(() => {}), 6000);
+          userMessageTracker.delete(userId);
+          return;
+        }
+      } else {
+        userMessageTracker.set(userId, { messageCount: 1, firstMessageTime: now });
+      }
+    } else {
+      userMessageTracker.set(userId, { messageCount: 1, firstMessageTime: now });
+    }
+  }
+
+  // Procesare Prefix '-'
+  if (!message.content.startsWith('-')) return;
+
+  const args = message.content.slice(1).trim().split(/ +/);
+  const command = args.shift().toLowerCase();
+  const guild = message.guild;
+  const botMember = guild.members.me;
+
+  if (command === 'ping') {
+    return message.reply('Pong! 🏓 **' + client.ws.ping + 'ms**');
+  }
+
+  if (command === 'server-info' || command === 'serverinfo') {
+    const embed = new EmbedBuilder()
+      .setTitle('📊 Informații Server - ' + guild.name)
+      .setThumbnail(guild.iconURL({ dynamic: true }))
+      .setColor(0x0077b6)
+      .addFields(
+        { name: '👑 Owner:', value: '<@' + guild.ownerId + '>', inline: true },
+        { name: '👥 Membri Totali:', value: '' + guild.memberCount, inline: true },
+        { name: '💬 Canale:', value: '' + guild.channels.cache.size, inline: true }
+      )
+      .setTimestamp();
+    return message.reply({ embeds: [embed] });
+  }
+
+  if (command === 'user-info' || command === 'userinfo') {
+    const targetUser = message.mentions.users.first() || message.author;
+    const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
+
+    const embed = new EmbedBuilder()
+      .setTitle('👤 Informații Utilizator - ' + targetUser.tag)
+      .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+      .setColor(0x0077b6)
+      .addFields(
+        { name: '🆔 ID Utilizator:', value: targetUser.id, inline: true },
+        { name: '📅 Cont Creat:', value: '<t:' + Math.floor(targetUser.createdTimestamp / 1000) + ':R>', inline: true },
+        { name: '📥 A intrat pe server:', value: targetMember ? '<t:' + Math.floor(targetMember.joinedTimestamp / 1000) + ':R>' : 'N/A', inline: true }
+      )
+      .setTimestamp();
+    return message.reply({ embeds: [embed] });
+  }
+
+  if (command === 'say') {
+    const text = args.join(' ');
+    if (!text) return message.reply('❌ Specifică mesajul!');
+    await message.delete().catch(() => {});
+    return message.channel.send(text);
+  }
+
+  if (command === 'purge') {
+    if (!member.permissions.has(PermissionFlagsBits.ManageMessages)) return message.reply('❌ Nu ai permisiunea necesară!');
+    const amount = parseInt(args[0]);
+    if (isNaN(amount)) return message.reply('❌ Specifică un număr valid!');
+    await message.channel.bulkDelete(amount, true).catch(() => {});
+    const m = await message.channel.send('🧹 Am șters **' + amount + '** mesaje!');
+    setTimeout(() => m.delete().catch(() => {}), 4000);
+    return;
+  }
+
+  if (command === 'channel-lock') {
+    if (!member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply('❌ Nu ai permisiunea!');
+    await message.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false });
+    return message.reply('🔒 Canal blocat!');
+  }
+
+  if (command === 'channel-unlock') {
+    if (!member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply('❌ Nu ai permisiunea!');
+    await message.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null });
+    return message.reply('🔓 Canal deblocat!');
+  }
+
+  if (command === 'slowmode') {
+    if (!member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply('❌ Nu ai permisiunea!');
+    const seconds = parseInt(args[0]);
+    if (isNaN(seconds)) return message.reply('❌ Specifică secundele!');
+    await message.channel.setRateLimitPerUser(seconds);
+    return message.reply('⏱️ Slowmode setat la ' + seconds + ' secunde!');
+  }
+
+  if (command === 'kick') {
+    if (!member.permissions.has(PermissionFlagsBits.KickMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('❌ Menționează membrul!');
+    const reason = args.slice(1).join(' ') || 'Fără motiv';
+
+    const err = checkHierarchy(member, target, botMember);
+    if (err) return message.reply('❌ ' + err);
+
+    const caseId = logCase(guild.id, target.id, 'Kick', reason, message.author.tag);
+    await target.kick(reason).catch(() => {});
+    return message.reply('✅ Utilizatorul a primit kick. (Caz #' + caseId + ')');
+  }
+
+  if (command === 'ban') {
+    if (!member.permissions.has(PermissionFlagsBits.BanMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('❌ Menționează membrul!');
+    const reason = args.slice(1).join(' ') || 'Fără motiv';
+
+    const err = checkHierarchy(member, target, botMember);
+    if (err) return message.reply('❌ ' + err);
+
+    const caseId = logCase(guild.id, target.id, 'Ban', reason, message.author.tag);
+    await guild.members.ban(target, { reason }).catch(() => {});
+    return message.reply('⛔ Utilizatorul a fost banat! (Caz #' + caseId + ')');
+  }
+
+  if (command === 'unban') {
+    if (!member.permissions.has(PermissionFlagsBits.BanMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const userId = args[0];
+    if (!userId) return message.reply('❌ Specifică ID-ul utilizatorului!');
+    try {
+      await guild.members.unban(userId);
+      return message.reply('✅ Banul a fost scos pentru ID-ul ' + userId + '!');
+    } catch {
+      return message.reply('❌ Nu s-a găsit niciun ban activ pe acest ID.');
+    }
+  }
+
+  if (command === 'tempban') {
+    if (!member.permissions.has(PermissionFlagsBits.BanMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.members.first();
+    const hours = parseInt(args[1]);
+    const reason = args.slice(2).join(' ') || 'Fără motiv';
+    if (!target || isNaN(hours)) return message.reply('❌ Format corect: `-tempban @user <ore> [motiv]`');
+
+    const err = checkHierarchy(member, target, botMember);
+    if (err) return message.reply('❌ ' + err);
+
+    const caseId = logCase(guild.id, target.id, `Temp-Ban (${hours}h)`, reason, message.author.tag);
+    await guild.members.ban(target, { reason }).catch(() => {});
+    setTimeout(async () => {
+      await guild.members.unban(target.id).catch(() => {});
+    }, hours * 60 * 60 * 1000);
+
+    return message.reply('⏱️ Utilizatorul a primit ban temporar ' + hours + ' ore! (Caz #' + caseId + ')');
+  }
+
+  if (command === 'mute') {
+    if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.members.first();
+    const minutes = parseInt(args[1]);
+    const reason = args.slice(2).join(' ') || 'Fără motiv';
+    if (!target || isNaN(minutes)) return message.reply('❌ Format corect: `-mute @user <minute> [motiv]`');
+
+    const err = checkHierarchy(member, target, botMember);
+    if (err) return message.reply('❌ ' + err);
+
+    const caseId = logCase(guild.id, target.id, `Timeout (${minutes}m)`, reason, message.author.tag);
+    await target.timeout(minutes * 60 * 1000, reason).catch(() => {});
+    return message.reply('🔇 Timeout aplicat pentru ' + minutes + ' minute! (Caz #' + caseId + ')');
+  }
+
+  if (command === 'unmute') {
+    if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('❌ Menționează membrul!');
+    await target.timeout(null).catch(() => {});
+    return message.reply('🔊 Timeout scos pentru **' + target.user.tag + '**!');
+  }
+
+  if (command === 'warn') {
+    if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.users.first();
+    const targetMember = message.mentions.members.first();
+    const reason = args.slice(1).join(' ');
+    if (!target || !reason) return message.reply('❌ Format corect: `-warn @user <motiv>`');
+
+    const err = checkHierarchy(member, targetMember, botMember);
+    if (err) return message.reply('❌ ' + err);
+
+    let currentWarns = (userWarns.get(target.id) || 0) + 1;
+    userWarns.set(target.id, currentWarns);
+
+    const caseId = logCase(guild.id, target.id, `Warn (${currentWarns}/3)`, reason, message.author.tag);
+    let extraInfo = '';
+    if (currentWarns >= 3) {
+      await targetMember.timeout(24 * 60 * 60 * 1000, 'Sistem Automat: 3/3 Avertismente').catch(() => {});
+      userWarns.set(target.id, 0);
+      extraInfo = '\n⚠️ **Utilizatorul a acumulat 3 warn-uri și a primit automat MUTE 24 de ore!**';
+    }
+
+    return message.reply('⚠️ **' + target.tag + '** a fost avertizat (Total: ' + currentWarns + '/3)! (Caz #' + caseId + ')' + extraInfo);
+  }
+
+  if (command === 'rwarn') {
+    if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Menționează utilizatorul!');
+    let amount = parseInt(args[1]) || 1;
+
+    let currentWarns = userWarns.get(target.id) || 0;
+    if (currentWarns <= 0) return message.reply('ℹ️ Utilizatorul nu are avertismente active.');
+
+    currentWarns = Math.max(0, currentWarns - amount);
+    userWarns.set(target.id, currentWarns);
+    return message.reply('✅ Au fost șterse warn-uri. Avertismente active rămase: **' + currentWarns + '/3**.');
+  }
+
+  if (command === 'user-history') {
+    if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) return message.reply('❌ Nu ai permisiunea!');
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Menționează utilizatorul!');
+    const cases = userCases.get(target.id) || [];
+    const activeWarns = userWarns.get(target.id) || 0;
+
+    let desc = cases.map(c => `**[Caz #${c.caseId}]** ${c.action} - Motiv: *${c.reason}*`).join('\n') || 'Niciun caz.';
+    desc += `\n\n⚠️ **Avertismente active:** ${activeWarns}/3`;
+
+    const embed = new EmbedBuilder().setTitle('📊 Istoric moderare: ' + target.tag).setDescription(desc).setColor(0x0077b6);
+    return message.reply({ embeds: [embed] });
+  }
+
+  if (command === 'user-clear-history') {
+    if (!member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ Doar administratorii pot folosi această comandă!');
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Menționează utilizatorul!');
+    userCases.delete(target.id);
+    userNotes.delete(target.id);
+    userWarns.delete(target.id);
+    return message.reply('✅ Istoricul și avertismentele utilizatorului au fost resetate!');
+  }
+});
+
+// HANDLER PENTRU INTERACȚIUNI (SLASH COMMANDS & BUTOANE)
 client.on('interactionCreate', async (interaction) => {
 
   if (interaction.isButton() && interaction.customId === 'btn_verify_me') {
@@ -406,12 +653,8 @@ client.on('interactionCreate', async (interaction) => {
   const { commandName, options, guild, channel, member: executor, user: executorUser } = interaction;
   const botMember = guild.members.me;
 
-  const logCase = (targetId, action, reason) => {
-    if (!userCases.has(targetId)) userCases.set(targetId, []);
-    const list = userCases.get(targetId);
-    const caseId = Math.floor(100000 + Math.random() * 900000);
-    list.push({ caseId, action, reason, moderator: executorUser.tag, time: Date.now() });
-    return caseId;
+  const logCaseSlash = (targetId, action, reason) => {
+    return logCase(guild.id, targetId, action, reason, executorUser.tag);
   };
 
   if (commandName === 'rps') {
@@ -459,7 +702,7 @@ client.on('interactionCreate', async (interaction) => {
       .setTitle('🛡️ CENTRU DE VERIFICARE')
       .setDescription('Apasă pe butonul de mai jos pentru a primi accesul complet.')
       .setColor(0x0077b6)
- .setFooter({ text: 'VLS Community Verification' });
+      .setFooter({ text: 'VLS Community Verification' });
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('btn_verify_me').setLabel('Verifică-te 🛡️').setStyle(ButtonStyle.Success)
@@ -521,6 +764,25 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
+  if (commandName === 'user-info') {
+    await interaction.deferReply({ ephemeral: false });
+    const targetUser = options.getUser('user') || executorUser;
+    const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
+
+    const embed = new EmbedBuilder()
+      .setTitle('👤 Informații Utilizator - ' + targetUser.tag)
+      .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+      .setColor(0x0077b6)
+      .addFields(
+        { name: '🆔 ID Utilizator:', value: targetUser.id, inline: true },
+        { name: '📅 Cont Creat:', value: '<t:' + Math.floor(targetUser.createdTimestamp / 1000) + ':R>', inline: true },
+        { name: '📥 A intrat pe server:', value: targetMember ? '<t:' + Math.floor(targetMember.joinedTimestamp / 1000) + ':R>' : 'N/A', inline: true }
+      )
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
+    return;
+  }
+
   if (commandName === 'purge') {
     await interaction.deferReply({ ephemeral: true });
     const amount = options.getInteger('numar');
@@ -566,8 +828,7 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // Executare comenzi din video
-  if (commandName === 'ban-add') {
+  if (commandName === 'ban') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
     const reason = options.getString('motiv') || 'Fără motiv';
@@ -576,13 +837,13 @@ client.on('interactionCreate', async (interaction) => {
       const err = checkHierarchy(executor, targetMember, botMember);
       if (err) return interaction.editReply({ content: '❌ ' + err });
     }
-    const caseId = logCase(target.id, 'Ban', reason);
+    const caseId = logCaseSlash(target.id, 'Ban', reason);
     await guild.members.ban(target, { reason }).catch(() => {});
     await interaction.editReply({ content: '⛔ Utilizatorul a fost banat! (Caz #' + caseId + ')' });
     return;
   }
 
-  if (commandName === 'ban-remove') {
+  if (commandName === 'unban') {
     await interaction.deferReply({ ephemeral: true });
     const userId = options.getString('userid');
     try {
@@ -594,7 +855,7 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  if (commandName === 'ban-temp') {
+  if (commandName === 'tempban') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
     const hours = options.getInteger('ore');
@@ -604,7 +865,7 @@ client.on('interactionCreate', async (interaction) => {
       const err = checkHierarchy(executor, targetMember, botMember);
       if (err) return interaction.editReply({ content: '❌ ' + err });
     }
-    const caseId = logCase(target.id, `Temp-Ban (${hours}h)`, reason);
+    const caseId = logCaseSlash(target.id, `Temp-Ban (${hours}h)`, reason);
     await guild.members.ban(target, { reason }).catch(() => {});
     setTimeout(async () => {
       await guild.members.unban(target.id).catch(() => {});
@@ -614,7 +875,7 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  if (commandName === 'mute-add') {
+  if (commandName === 'mute') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
     const minutes = options.getInteger('minute');
@@ -625,13 +886,13 @@ client.on('interactionCreate', async (interaction) => {
     const err = checkHierarchy(executor, targetMember, botMember);
     if (err) return interaction.editReply({ content: '❌ ' + err });
 
-    const caseId = logCase(target.id, `Timeout (${minutes}m)`, reason);
+    const caseId = logCaseSlash(target.id, `Timeout (${minutes}m)`, reason);
     await targetMember.timeout(minutes * 60 * 1000, reason).catch(() => {});
     await interaction.editReply({ content: '🔇 Timeout aplicat pentru ' + minutes + ' minute! (Caz #' + caseId + ')' });
     return;
   }
 
-  if (commandName === 'mute-remove') {
+  if (commandName === 'unmute') {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
     const targetMember = await guild.members.fetch(target.id).catch(() => null);
@@ -714,7 +975,7 @@ client.on('interactionCreate', async (interaction) => {
     const err = checkHierarchy(executor, targetMember, botMember);
     if (err) return interaction.editReply({ content: '❌ ' + err });
 
-    const caseId = logCase(target.id, 'Kick', reason);
+    const caseId = logCaseSlash(target.id, 'Kick', reason);
     await targetMember.kick(reason).catch(() => {});
     await interaction.editReply({ content: '✅ Utilizatorul a primit kick. (Caz #' + caseId + ')' });
     return;
@@ -730,25 +991,35 @@ client.on('interactionCreate', async (interaction) => {
     const err = checkHierarchy(executor, targetMember, botMember);
     if (err) return interaction.editReply({ content: '❌ ' + err });
 
-    const caseId = logCase(target.id, 'Warn', reason);
-    const timestampNow = '<t:' + Math.floor(Date.now() / 1000) + ':R>';
+    let currentWarns = (userWarns.get(target.id) || 0) + 1;
+    userWarns.set(target.id, currentWarns);
 
-    const warnEmbed = new EmbedBuilder()
-      .setTitle('❗ Punishment Issued')
-      .setColor(0x0077b6)
-      .setDescription(
-        'You received a punishment from our server staff for breaking the server rules. Please check the details below:\n\n' +
-        '- **Punishment:** Warn\n' +
-        '- **Moderator:** <@' + executorUser.id + '>\n' +
-        '- **Time:** ' + timestampNow + '\n' +
-        '- **Case ID:** #' + caseId + '\n' +
-        '- **Reason:** ' + reason
-      )
-      .setFooter({ text: guild.name + ' Moderation Team' })
-      .setTimestamp();
+    const caseId = logCaseSlash(target.id, `Warn (${currentWarns}/3)`, reason);
+    let extraInfo = '';
+    if (currentWarns >= 3) {
+      await targetMember.timeout(24 * 60 * 60 * 1000, 'Sistem Automat: 3/3 Avertismente').catch(() => {});
+      userWarns.set(target.id, 0); 
+      extraInfo = '\n⚠️ **Utilizatorul a acumulat 3 warn-uri și a primit automat MUTE 24 de ore!**';
+    }
 
-    await target.send({ embeds: [warnEmbed] }).catch(() => {});
-    await interaction.editReply({ content: '⚠️ **' + target.tag + '** a fost avertizat și notificat în privat! (Caz #' + caseId + ')' });
+    await interaction.editReply({ content: '⚠️ **' + target.tag + '** a fost avertizat (Total: ' + currentWarns + '/3)! (Caz #' + caseId + ')' + extraInfo });
+    return;
+  }
+
+  if (commandName === 'rwarn') {
+    await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
+    let amount = options.getInteger('cantitate') || 1;
+
+    let currentWarns = userWarns.get(target.id) || 0;
+    if (currentWarns <= 0) {
+      return interaction.editReply({ content: 'ℹ️ Utilizatorul nu are niciun avertisment activ.' });
+    }
+
+    currentWarns = Math.max(0, currentWarns - amount);
+    userWarns.set(target.id, currentWarns);
+
+    await interaction.editReply({ content: '✅ Au fost șterse warn-uri de la **' + target.tag + '**! Avertismente active rămase: **' + currentWarns + '/3**.' });
     return;
   }
 
@@ -828,9 +1099,12 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const target = options.getUser('user');
     const cases = userCases.get(target.id) || [];
-    if (cases.length === 0) return interaction.editReply({ content: 'ℹ️ Utilizatorul nu are niciun istoric de moderare.' });
+    const activeWarns = userWarns.get(target.id) || 0;
+    if (cases.length === 0 && activeWarns === 0) return interaction.editReply({ content: 'ℹ️ Utilizatorul nu are niciun istoric de moderare.' });
 
     let desc = cases.map(c => `**[Caz #${c.caseId}]** ${c.action} - Motiv: *${c.reason}*`).join('\n');
+    desc += `\n\n⚠️ **Avertismente active curente:** ${activeWarns}/3`;
+
     const embed = new EmbedBuilder().setTitle('📊 Istoric moderare: ' + target.tag).setDescription(desc).setColor(0x0077b6);
     await interaction.editReply({ embeds: [embed] });
     return;
@@ -841,7 +1115,8 @@ client.on('interactionCreate', async (interaction) => {
     const target = options.getUser('user');
     userCases.delete(target.id);
     userNotes.delete(target.id);
-    await interaction.editReply({ content: '✅ Istoricul și notele utilizatorului au fost resetate complet!' });
+    userWarns.delete(target.id);
+    await interaction.editReply({ content: '✅ Istoricul, notele și avertismentele utilizatorului au fost resetate complet!' });
     return;
   }
 });
