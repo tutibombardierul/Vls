@@ -8,8 +8,7 @@ app.get('/', (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
   console.log('Server web pornit cu succes pe portul ' + port);
-});
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
+});const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
 
 // ID-urile serverului tău
 const TICKET_CATEGORY_ID = '1530184638893522984';
@@ -18,7 +17,7 @@ const VERIFIED_ROLE_ID = '15301895791240192';
 const LOG_CHANNEL_ID = '1530184671827071160';
 const PREFIX = '-';
 
-// Prevenire dublare creare tickete
+// Evitare creare dublă
 const activeTicketCreations = new Set();
 
 const client = new Client({
@@ -31,7 +30,7 @@ const client = new Client({
   ]
 });
 
-// Toate comenzile Slash
+// Definire Comenzi Slash
 const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Meniul de ajutor cu toate comenzile'),
   new SlashCommandBuilder().setName('setup-verify').setDescription('Trimite panoul de verificare pe server'),
@@ -69,11 +68,11 @@ const commands = [
     { name: 'Hârtie', value: 'hartie' },
     { name: 'Foarfecă', value: 'foarfece' }
   )),
-  // Comenzi noi de gestiune Ticket
+  // Comenzi Ticket
   new SlashCommandBuilder().setName('add').setDescription('Adaugă un utilizator în ticket').addUserOption(opt => opt.setName('user').setDescription('Utilizatorul').setRequired(true)),
   new SlashCommandBuilder().setName('remove').setDescription('Elimină un utilizator din ticket').addUserOption(opt => opt.setName('user').setDescription('Utilizatorul').setRequired(true)),
   new SlashCommandBuilder().setName('transfer').setDescription('Transferă ticketul altui membru staff').addUserOption(opt => opt.setName('user').setDescription('Noul titular staff').setRequired(true)),
-  new SlashCommandBuilder().setName('unclaim').setDescription('Renunță la preluarea ticketului (Unclaim)'),
+  new SlashCommandBuilder().setName('unclaim').setDescription('Renunță la preluarea ticketului'),
   new SlashCommandBuilder().setName('rename').setDescription('Schimbă numele ticketului').addStringOption(opt => opt.setName('nume').setDescription('Noul nume').setRequired(true))
 ];
 
@@ -82,17 +81,17 @@ client.once('ready', async () => {
   client.user.setPresence({ activities: [{ name: '🥇VLS ON TOP 🔝' }], status: 'online' });
 
   if (!process.env.GUILD_ID) {
-    console.error('❌ Eroare: GUILD_ID nu este setat în variabilele de mediu!');
+    console.error('❌ GUILD_ID nu este definit în variabilele de mediu!');
     return;
   }
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
   try {
-    console.log('Se înregistrează comenzile Slash...');
+    console.log('Înregistrare comenzi Slash...');
     await rest.put(
       Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
-      { body: commands.map(command => command.toJSON()) },
+      { body: commands.map(cmd => cmd.toJSON()) },
     );
     console.log('Comenzile Slash au fost înregistrate cu succes!');
   } catch (error) {
@@ -130,9 +129,11 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // Comenzi Ticket cu Prefix (-)
+  // Comenzi Ticket cu Prefix
+  const isTicketChannel = message.channel.name.includes('ticket') || message.channel.name.startsWith('『🎫』');
+
   if (commandName === 'add') {
-    if (!message.channel.name.startsWith('『🎫』')) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
+    if (!isTicketChannel) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
     const target = message.mentions.members.first();
     if (!target) return message.reply('❌ Menționează utilizatorul pe care vrei să îl adaugi!');
     await message.channel.permissionOverwrites.edit(target.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
@@ -140,7 +141,7 @@ client.on('messageCreate', async (message) => {
   }
 
   if (commandName === 'remove') {
-    if (!message.channel.name.startsWith('『🎫』')) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
+    if (!isTicketChannel) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
     const target = message.mentions.members.first();
     if (!target) return message.reply('❌ Menționează utilizatorul pe care vrei să îl elimini!');
     await message.channel.permissionOverwrites.delete(target.id).catch(() => {});
@@ -148,7 +149,7 @@ client.on('messageCreate', async (message) => {
   }
 
   if (commandName === 'transfer') {
-    if (!message.channel.name.startsWith('『🎫』')) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
+    if (!isTicketChannel) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
     const target = message.mentions.members.first();
     if (!target) return message.reply('❌ Menționează membrul staff către care vrei să transferi ticketul!');
     const messages = await message.channel.messages.fetch({ limit: 10 });
@@ -166,7 +167,7 @@ client.on('messageCreate', async (message) => {
   }
 
   if (commandName === 'unclaim') {
-    if (!message.channel.name.startsWith('『🎫』')) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
+    if (!isTicketChannel) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
     const messages = await message.channel.messages.fetch({ limit: 10 });
     const botMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0);
     if (botMsg) {
@@ -182,7 +183,7 @@ client.on('messageCreate', async (message) => {
   }
 
   if (commandName === 'rename') {
-    if (!message.channel.name.startsWith('『🎫』')) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
+    if (!isTicketChannel) return message.reply('❌ Această comandă funcționează doar în canale de ticket!');
     const newName = args.join('-');
     if (!newName) return message.reply('❌ Specifică noul nume pentru ticket!');
     const cleanName = newName.toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -192,20 +193,15 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// HANDLER PENTRU INTERACȚIUNI
+// HANDLER PENTRU INTERACȚIUNI (Slash Commands, Menus, Buttons)
 client.on('interactionCreate', async (interaction) => {
+
+  // Slash Commands
   if (interaction.isChatInputCommand()) {
     const { commandName, options, guild, user } = interaction;
 
-    if (commandName === 'help') {
-      await interaction.reply({ content: 'Meniul de ajutor - VLS Bot', ephemeral: true });
-      return;
-    }
-
-    if (commandName === 'ping') {
-      await interaction.reply({ content: `Pong! ${client.ws.ping}ms`, ephemeral: true });
-      return;
-    }
+    if (commandName === 'help') return interaction.reply({ content: 'Meniul de ajutor - VLS Bot', ephemeral: true });
+    if (commandName === 'ping') return interaction.reply({ content: `Pong! ${client.ws.ping}ms`, ephemeral: true });
 
     if (commandName === 'server-info') {
       const embed = new EmbedBuilder()
@@ -217,8 +213,7 @@ client.on('interactionCreate', async (interaction) => {
         )
         .setColor(0x0099ff)
         .setTimestamp();
-      await interaction.reply({ embeds: [embed], ephemeral: false });
-      return;
+      return interaction.reply({ embeds: [embed], ephemeral: false });
     }
 
     if (commandName === 'user-info') {
@@ -232,75 +227,52 @@ client.on('interactionCreate', async (interaction) => {
         )
         .setColor(0xffaa00)
         .setTimestamp();
-      await interaction.reply({ embeds: [embed], ephemeral: false });
-      return;
+      return interaction.reply({ embeds: [embed], ephemeral: false });
     }
 
     if (commandName === 'say') {
       const text = options.getString('mesaj');
       await interaction.channel.send(text);
-      await interaction.reply({ content: '✅ Trimis!', ephemeral: true });
-      return;
+      return interaction.reply({ content: '✅ Trimis!', ephemeral: true });
     }
 
     if (commandName === 'purge') {
       const amount = options.getInteger('numar');
-      if (amount < 1 || amount > 100) {
-        return interaction.reply({ content: 'Specifică un număr între 1 și 100!', ephemeral: true });
-      }
+      if (amount < 1 || amount > 100) return interaction.reply({ content: 'Specifică un număr între 1 și 100!', ephemeral: true });
       await interaction.channel.bulkDelete(amount, true).catch(() => {});
-      await interaction.reply({ content: `✅ Șters ${amount} mesaje!`, ephemeral: true });
-      return;
+      return interaction.reply({ content: `✅ Șters ${amount} mesaje!`, ephemeral: true });
     }
 
     if (commandName === 'channel-lock') {
       await interaction.channel.permissionOverwrites.edit(guild.id, { SendMessages: false });
-      await interaction.reply({ content: '🔒 Canal blocat!', ephemeral: true });
-      return;
+      return interaction.reply({ content: '🔒 Canal blocat!', ephemeral: true });
     }
 
     if (commandName === 'channel-unlock') {
       await interaction.channel.permissionOverwrites.edit(guild.id, { SendMessages: null });
-      await interaction.reply({ content: '🔓 Canal deblocat!', ephemeral: true });
-      return;
+      return interaction.reply({ content: '🔓 Canal deblocat!', ephemeral: true });
     }
 
     if (commandName === 'slowmode') {
       const seconds = options.getInteger('secunde');
       await interaction.channel.setRateLimitPerUser(seconds);
-      await interaction.reply({ content: `⏱️ Slowmode setat la ${seconds} secunde!`, ephemeral: true });
-      return;
+      return interaction.reply({ content: `⏱️ Slowmode setat la ${seconds} secunde!`, ephemeral: true });
     }
 
-    // Handlere Slash Commands pentru gestiune Ticket
+    // Slash Commands pentru Gestiune Ticket
     if (commandName === 'add') {
-      if (!interaction.channel.name.startsWith('『🎫』')) {
-        return interaction.reply({ content: '❌ Această comandă poate fi folosită doar într-un ticket!', ephemeral: true });
-      }
       const targetUser = options.getUser('user');
-      await interaction.channel.permissionOverwrites.edit(targetUser.id, {
-        ViewChannel: true,
-        SendMessages: true,
-        ReadMessageHistory: true
-      });
-      await interaction.reply({ content: `✅ Utilizatorul ${targetUser} a fost adăugat în ticket!` });
-      return;
+      await interaction.channel.permissionOverwrites.edit(targetUser.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+      return interaction.reply({ content: `✅ Utilizatorul ${targetUser} a fost adăugat!` });
     }
 
     if (commandName === 'remove') {
-      if (!interaction.channel.name.startsWith('『🎫』')) {
-        return interaction.reply({ content: '❌ Această comandă poate fi folosită doar într-un ticket!', ephemeral: true });
-      }
       const targetUser = options.getUser('user');
       await interaction.channel.permissionOverwrites.delete(targetUser.id).catch(() => {});
-      await interaction.reply({ content: `✅ Utilizatorul ${targetUser} a fost eliminat din ticket!` });
-      return;
+      return interaction.reply({ content: `✅ Utilizatorul ${targetUser} a fost eliminat!` });
     }
 
     if (commandName === 'transfer') {
-      if (!interaction.channel.name.startsWith('『🎫』')) {
-        return interaction.reply({ content: '❌ Această comandă poate fi folosită doar într-un ticket!', ephemeral: true });
-      }
       const targetUser = options.getUser('user');
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const botMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0);
@@ -313,14 +285,10 @@ client.on('interactionCreate', async (interaction) => {
         const updatedEmbed = EmbedBuilder.from(oldEmbed).setDescription(newDesc);
         await botMsg.edit({ embeds: [updatedEmbed] });
       }
-      await interaction.reply({ content: `🔄 Ticketul a fost transferat către <@${targetUser.id}>!` });
-      return;
+      return interaction.reply({ content: `🔄 Ticketul a fost transferat către <@${targetUser.id}>!` });
     }
 
     if (commandName === 'unclaim') {
-      if (!interaction.channel.name.startsWith('『🎫』')) {
-        return interaction.reply({ content: '❌ Această comandă poate fi folosită doar într-un ticket!', ephemeral: true });
-      }
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const botMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0);
       if (botMsg) {
@@ -332,20 +300,15 @@ client.on('interactionCreate', async (interaction) => {
         const updatedEmbed = EmbedBuilder.from(oldEmbed).setDescription(newDesc);
         await botMsg.edit({ embeds: [updatedEmbed] });
       }
-      await interaction.reply({ content: '↩️ Ticketul este acum neclaim-uit!' });
-      return;
+      return interaction.reply({ content: '↩️ Ticketul este acum neclaim-uit!' });
     }
 
     if (commandName === 'rename') {
-      if (!interaction.channel.name.startsWith('『🎫』')) {
-        return interaction.reply({ content: '❌ Această comandă poate fi folosită doar într-un ticket!', ephemeral: true });
-      }
       const newName = options.getString('nume');
       const cleanName = newName.toLowerCase().replace(/[^a-z0-9-]/g, '');
       const formattedName = `『🎫』${cleanName}`;
       await interaction.channel.setName(formattedName);
-      await interaction.reply({ content: `✏️ Canalul a fost redenumit în \`${formattedName}\`!` });
-      return;
+      return interaction.reply({ content: `✏️ Canal redenumit în \`${formattedName}\`!` });
     }
 
     if (commandName === 'setup-verify') {
@@ -357,8 +320,7 @@ client.on('interactionCreate', async (interaction) => {
         new ButtonBuilder().setCustomId('verify_btn').setLabel('Verifică-te').setStyle(ButtonStyle.Success)
       );
       await interaction.channel.send({ embeds: [embed], components: [row] });
-      await interaction.reply({ content: 'Panoul de verificare a fost creat!', ephemeral: true });
-      return;
+      return interaction.reply({ content: 'Panoul de verificare a fost creat!', ephemeral: true });
     }
 
     if (commandName === 'ticket-setup') {
@@ -372,108 +334,94 @@ client.on('interactionCreate', async (interaction) => {
           .setCustomId('ticket_select_menu')
           .setPlaceholder('Support General Menu')
           .addOptions([
-            {
-              label: 'Claim Reward',
-              description: 'Revendică un premiu sau o recompensă',
-              value: 'tk_reward',
-              emoji: '🎁'
-            },
-            {
-              label: 'Report a User',
-              description: 'Raportează un utilizator',
-              value: 'tk_report',
-              emoji: '📜'
-            },
-            {
-              label: 'Support General',
-              description: 'Întrebări și asistență generală',
-              value: 'tk_support',
-              emoji: '🎧'
-            }
+            { label: 'Claim Reward', description: 'Revendică un premiu sau o recompensă', value: 'tk_reward', emoji: '🎁' },
+            { label: 'Report a User', description: 'Raportează un utilizator', value: 'tk_report', emoji: '📜' },
+            { label: 'Support General', description: 'Întrebări și asistență generală', value: 'tk_support', emoji: '🎧' }
           ])
       );
 
       await interaction.channel.send({ embeds: [embed], components: [row] });
-      await interaction.reply({ content: 'Panoul de tichete cu meniu a fost creat!', ephemeral: true });
-      return;
+      return interaction.reply({ content: 'Panoul de tichete cu meniu a fost creat!', ephemeral: true });
     }
   }
 
-  // Handler pentru Meniul Dropdown (Select Menu)
-  if (interaction.isStringSelectMenu()) {
-    if (interaction.customId === 'ticket_select_menu') {
-      // Verificăm dacă utilizatorul creează deja un ticket
-      if (activeTicketCreations.has(interaction.user.id)) {
-        return interaction.reply({ content: '⏳ Ticketul tău se creează deja, te rugăm să aștepți!', ephemeral: true });
-      }
+  // Meniu Selectare Categorie Ticket (Aici se folosește deferReply pentru a preveni erorile de timeout)
+  if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select_menu') {
+    
+    // Anunțăm Discord că procesăm cererea (previne timeout-ul de 3 secunde)
+    await interaction.deferReply({ ephemeral: true });
 
-      const cleanUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const existingChannel = interaction.guild.channels.cache.find(c => c.name.includes(cleanUsername) && c.name.startsWith('『🎫』'));
-      
-      if (existingChannel) {
-        return interaction.reply({ content: `❌ Ai deja un ticket deschis: ${existingChannel}`, ephemeral: true });
-      }
-
-      activeTicketCreations.add(interaction.user.id);
-
-      try {
-        const selectedValue = interaction.values[0];
-        let type = 'support';
-        let ticketTitle = 'General Support';
-
-        if (selectedValue === 'tk_reward') {
-          type = 'reward';
-          ticketTitle = 'Claim Reward';
-        } else if (selectedValue === 'tk_report') {
-          type = 'report';
-          ticketTitle = 'Report a User';
-        } else if (selectedValue === 'tk_support') {
-          type = 'support';
-          ticketTitle = 'General Support';
-        }
-
-        const ticketName = `『🎫』${cleanUsername}-${type}`;
-
-        // Creare canal în categoria cerută 1530184638893522984
-        const channel = await interaction.guild.channels.create({
-          name: ticketName,
-          type: ChannelType.GuildText,
-          parent: TICKET_CATEGORY_ID,
-          permissionOverwrites: [
-            { id: interaction.guild.id, deny: ['ViewChannel'] },
-            { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
-            { id: STAFF_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
-          ]
-        });
-
-        const ticketEmbed = new EmbedBuilder()
-          .setAuthor({ name: interaction.guild.name, iconURL: interaction.guild.iconURL({ dynamic: true }) })
-          .setTitle(ticketTitle)
-          .setDescription(`👤 **Deschis de:** <@${interaction.user.id}>\n🛠️ **Claim-uit de:** Neclaim-uit\n\n### 📝 Detalii\nDescrie problema sau întrebarea ta cât mai clar, pentru ca echipa să te poată ajuta.\n\n✨ Nu contacta staff-ul în privat. Așteaptă răspunsul în acest ticket.`)
-          .setColor(0xff0000);
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim Ticket').setStyle(ButtonStyle.Success).setEmoji('🎫'),
-          new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim Ticket').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
-          new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
-        );
-
-        // Ping membru + rol Staff
-        await channel.send({ content: `<@${interaction.user.id}> <@&${STAFF_ROLE_ID}>`, embeds: [ticketEmbed], components: [row] });
-        await interaction.reply({ content: `Tichetul tău a fost creat: ${channel}`, ephemeral: true });
-      } catch (err) {
-        console.error('Eroare creare ticket:', err);
-        if (!interaction.replied) {
-          await interaction.reply({ content: '❌ A apărut o eroare la crearea ticketului!', ephemeral: true });
-        }
-      } finally {
-        activeTicketCreations.delete(interaction.user.id);
-      }
-      return;
+    if (activeTicketCreations.has(interaction.user.id)) {
+      return interaction.editReply({ content: '⏳ Ticketul tău se creează deja, te rugăm să aștepți!' });
     }
+
+    let cleanUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!cleanUsername) cleanUsername = interaction.user.id;
+
+    const existingChannel = interaction.guild.channels.cache.find(c => c.name.includes(cleanUsername) && (c.name.includes('support') || c.name.includes('reward') || c.name.includes('report')));
+    
+    if (existingChannel) {
+      return interaction.editReply({ content: `❌ Ai deja un ticket deschis: ${existingChannel}` });
+    }
+
+    activeTicketCreations.add(interaction.user.id);
+
+    try {
+      const selectedValue = interaction.values[0];
+      let type = 'support';
+      let ticketTitle = 'General Support';
+
+      if (selectedValue === 'tk_reward') {
+        type = 'reward';
+        ticketTitle = 'Claim Reward';
+      } else if (selectedValue === 'tk_report') {
+        type = 'report';
+        ticketTitle = 'Report a User';
+      } else if (selectedValue === 'tk_support') {
+        type = 'support';
+        ticketTitle = 'General Support';
+      }
+
+      const ticketName = `『🎫』${cleanUsername}-${type}`;
+
+      // Creare canal în categoria cerută
+      const channel = await interaction.guild.channels.create({
+        name: ticketName,
+        type: ChannelType.GuildText,
+        parent: TICKET_CATEGORY_ID,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: ['ViewChannel'] },
+          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+          { id: STAFF_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
+        ]
+      });
+
+      const ticketEmbed = new EmbedBuilder()
+        .setAuthor({ name: interaction.guild.name, iconURL: interaction.guild.iconURL({ dynamic: true }) })
+        .setTitle(ticketTitle)
+        .setDescription(`👤 **Deschis de:** <@${interaction.user.id}>\n🛠️ **Claim-uit de:** Neclaim-uit\n\n### 📝 Detalii\nDescrie problema sau întrebarea ta cât mai clar, pentru ca echipa să te poată ajuta.\n\n✨ Nu contacta staff-ul în privat. Așteaptă răspunsul în acest ticket.`)
+        .setColor(0xff0000);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim Ticket').setStyle(ButtonStyle.Success).setEmoji('🎫'),
+        new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim Ticket').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+      );
+
+      // Tag membru + rol Staff
+      await channel.send({ content: `<@${interaction.user.id}> <@&${STAFF_ROLE_ID}>`, embeds: [ticketEmbed], components: [row] });
+      await interaction.editReply({ content: `Tichetul tău a fost creat: ${channel}` });
+
+    } catch (err) {
+      console.error('Eroare creare ticket:', err);
+      await interaction.editReply({ content: '❌ A apărut o eroare la crearea ticketului. Verifică permisiunile botului!' });
+    } finally {
+      activeTicketCreations.delete(interaction.user.id);
+    }
+    return;
   }
 
-  // Handler pentru Butoane
+  // Handler Butoane
   if (interaction.isButton()) {
     const { customId, guild, member, user, message } = interaction;
 
@@ -481,11 +429,10 @@ client.on('interactionCreate', async (interaction) => {
       const role = guild.roles.cache.get(VERIFIED_ROLE_ID) || guild.roles.cache.find(r => r.name === 'Membru');
       if (role) {
         await member.roles.add(role).catch(() => {});
-        await interaction.reply({ content: '✅ Ai fost verificat cu succes!', ephemeral: true });
+        return interaction.reply({ content: '✅ Ai fost verificat cu succes!', ephemeral: true });
       } else {
-        await interaction.reply({ content: '❌ Rolul de membru nu a fost găsit!', ephemeral: true });
+        return interaction.reply({ content: '❌ Rolul de membru nu a fost găsit!', ephemeral: true });
       }
-      return;
     }
 
     if (customId === 'claim_ticket') {
@@ -495,8 +442,7 @@ client.on('interactionCreate', async (interaction) => {
         .setDescription(oldEmbed.description.replace(/🛠️ \*\*Claim-uit de:\*\* .*/, `🛠️ **Claim-uit de:** <@${user.id}>`));
 
       await interaction.update({ embeds: [updatedEmbed], components: message.components });
-      await interaction.followUp({ content: `✅ Tichet preluat de către <@${user.id}>!`, ephemeral: false });
-      return;
+      return interaction.followUp({ content: `✅ Tichet preluat de către <@${user.id}>!`, ephemeral: false });
     }
 
     if (customId === 'unclaim_ticket') {
@@ -506,8 +452,7 @@ client.on('interactionCreate', async (interaction) => {
         .setDescription(oldEmbed.description.replace(/🛠️ \*\*Claim-uit de:\*\* .*/, '🛠️ **Claim-uit de:** Neclaim-uit'));
 
       await interaction.update({ embeds: [updatedEmbed], components: message.components });
-      await interaction.followUp({ content: `↩️ Ticketul a fost setat ca neclaim-uit de către <@${user.id}>!`, ephemeral: false });
-      return;
+      return interaction.followUp({ content: `↩️ Ticketul a fost setat ca neclaim-uit de către <@${user.id}>!`, ephemeral: false });
     }
 
     if (customId === 'close_ticket') {
@@ -528,7 +473,7 @@ client.on('interactionCreate', async (interaction) => {
         await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
       }
 
-      await interaction.reply({ content: 'Ticketul se va închide în 5 secunde...', ephemeral: false });
+      await interaction.reply({ content: 'Tichetul se va închide în 5 secunde...', ephemeral: true });
 
       setTimeout(async () => {
         await interaction.channel.delete().catch(() => {});
