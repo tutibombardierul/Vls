@@ -1,5 +1,11 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
 
+// ID-urile serverului tău
+const STAFF_ROLE_ID = '1530184457744830255';
+const VERIFIED_ROLE_ID = '15301895791240192';
+const LOG_CHANNEL_ID = '1530184671827071160';
+const PREFIX = '-';
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -9,8 +15,6 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates
   ]
 });
-
-const PREFIX = '-';
 
 // Toate comenzile Slash cu descrierile tale originale
 const commands = [
@@ -255,12 +259,14 @@ client.on('interactionCreate', async (interaction) => {
         ticketTitle = 'General Support';
       }
 
+      // Permisiuni: Membrul care a deschis ticketul + Echipa Staff au acces la canal
       const channel = await interaction.guild.channels.create({
         name: ticketName,
         type: ChannelType.GuildText,
         permissionOverwrites: [
           { id: interaction.guild.id, deny: ['ViewChannel'] },
-          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
+          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+          { id: STAFF_ROLE_ID, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
         ]
       });
 
@@ -275,19 +281,19 @@ client.on('interactionCreate', async (interaction) => {
         new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
       );
 
-      // Ping pentru utilizator + @everyone (notificare staff)
-      await channel.send({ content: `<@${interaction.user.id}> @everyone`, embeds: [ticketEmbed], components: [row] });
+      // Ping direct la membru + rolul de staff
+      await channel.send({ content: `<@${interaction.user.id}> <@&${STAFF_ROLE_ID}>`, embeds: [ticketEmbed], components: [row] });
       await interaction.reply({ content: `Tichetul tău a fost creat: ${channel}`, ephemeral: true });
       return;
     }
   }
 
-  // Handler butoane
+  // Handler pentru Butoane
   if (interaction.isButton()) {
     const { customId, guild, member, user, message } = interaction;
 
     if (customId === 'verify_btn') {
-      const role = guild.roles.cache.find(r => r.name === 'Membru');
+      const role = guild.roles.cache.get(VERIFIED_ROLE_ID) || guild.roles.cache.find(r => r.name === 'Membru');
       if (role) {
         await member.roles.add(role).catch(() => {});
         await interaction.reply({ content: '✅ Ai fost verificat cu succes!', ephemeral: true });
@@ -308,8 +314,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (customId === 'close_ticket') {
-      const logChannelId = '1530184671827071160';
-      const logChannel = guild.channels.cache.get(logChannelId);
+      const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
 
       if (logChannel) {
         const logEmbed = new EmbedBuilder()
@@ -337,4 +342,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-                                                                                                                                                                                                                                                                                                                                  
+  
