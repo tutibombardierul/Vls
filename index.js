@@ -1123,12 +1123,13 @@ await interaction.reply({
     return;
   }
 
-  if (commandName === 'say') {
-    await interaction.deferReply({ ephemeral: false });
+    if (commandName === 'say') {
+    await interaction.deferReply({ ephemeral: true });
     await channel.send(options.getString('mesaj'));
-    await interaction.editReply({ content: '✅ Trimis!' });
+    await interaction.deleteReply(); // Șterge mesajul de confirmare
     return;
-  }
+    }
+    
 
   if (commandName === 'ping') {
     await interaction.reply({ content: 'Pong! 🏓 **' + client.ws.ping + 'ms**', ephemeral: false });
