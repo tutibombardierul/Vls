@@ -1,3 +1,15 @@
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+  res.send('VLS BOT este ONLINE 24/7!');
+});
+
+app.listen(port, '0.0.0.0', () => {
+  console.log('Server web pornit cu succes pe portul ' + port);
+});
+
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
 
 const client = new Client({
