@@ -1,15 +1,3 @@
-const express = require('express');
-const app = express();
-const port = process.env.PORT || 10000;
-
-app.get('/', (req, res) => {
-  res.send('VLS BOT este ONLINE 24/7!');
-});
-
-app.listen(port, '0.0.0.0', () => {
-  console.log('Server web pornit cu succes pe portul ' + port);
-});
-
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
 
 const client = new Client({
@@ -200,8 +188,8 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'setup-verify') {
       const embed = new EmbedBuilder()
-        .setTitle('🔐 CENTRE DE VERIFICARE')
-        .setDescription('Apasă pe butonul de mai jos pentru a primi accesul complet.')
+        .setTitle('Bine ai venit pe server!')
+        .setDescription('Apasă pe butonul de mai jos pentru a primii accesul complet pe server.')
         .setColor(0x00ff00);
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('verify_btn').setLabel('Verifică-te').setStyle(ButtonStyle.Success)
@@ -213,8 +201,8 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'ticket-setup') {
       const embed = new EmbedBuilder()
-        .setTitle('Support General Menu')
-        .setDescription('• **Claim Reward**\nDeschide un ticket pentru a revendica un premiu sau o recompensă.\n\n• **Report a User**\nRaportează un utilizator care a încălcat regulamentul.\n\n• **Support General**\nPentru întrebări, probleme sau orice altceva.')
+        .setTitle('🎫 CENTRU DE SUPORT')
+        .setDescription('***Ai nevoie de ajutor? Selectează categoria potrivită din meniul de mai jos și deschide un ticket. Echipa noastră îți va răspunde cât mai curând posibil.***\n\n## 🎁 Claim Reward\n**Deschide un ticket pentru a revendica un premiu sau o recompensă. Te rugăm să atașezi dovezile necesare.**\n\n## 🚨 Report a User\n**Raportează un utilizator care a încălcat regulamentul. Include ID-ul utilizatorului, motivul raportării și dovezi clare.**\n\n## 🛡️ General Support\n**Pentru întrebări, probleme sau orice alt tip de ajutor care nu se încadrează în categoriile de mai sus.**\n\n-# Nu deschide ticket-uri fără motiv și nu contacta membrii staff-ului în privat. Abuzul sistemului de suport poate duce la sancțiuni.')
         .setColor(0x2f3136);
 
       const row = new ActionRowBuilder().addComponents(
@@ -287,7 +275,7 @@ client.on('interactionCreate', async (interaction) => {
         new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
       );
 
-      // Ping pentru utilizator + @everyone sau rol de staff (poți schimba "@everyone" cu ID-ul rolului tău de staff dacă dorești)
+      // Ping pentru utilizator + @everyone (notificare staff)
       await channel.send({ content: `<@${interaction.user.id}> @everyone`, embeds: [ticketEmbed], components: [row] });
       await interaction.reply({ content: `Tichetul tău a fost creat: ${channel}`, ephemeral: true });
       return;
@@ -349,4 +337,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-                                    
+                                                                                                                                                                                                                                                                                                                                  
