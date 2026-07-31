@@ -1,15 +1,3 @@
-const express = require('express');
-const app = express();
-const port = process.env.PORT || 10000;
-
-app.get('/', (req, res) => {
-  res.send('VLS BOT este ONLINE 24/7!');
-});
-
-app.listen(port, '0.0.0.0', () => {
-  console.log('Server web pornit cu succes pe portul ' + port);
-});
-
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, StringSelectMenuBuilder } = require('discord.js');
 
 const client = new Client({
@@ -22,9 +10,6 @@ const client = new Client({
   ]
 });
 
-const userWarnings = new Map();
-const userCases = new Map();
-const userNotes = new Map();
 const PREFIX = '-';
 
 // Toate comenzile Slash cu descrierile tale originale
@@ -71,17 +56,22 @@ client.once('ready', async () => {
   console.log(`Logat ca ${client.user.tag}!`);
   client.user.setPresence({ activities: [{ name: '🥇VLS ON TOP 🔝' }], status: 'online' });
 
+  if (!process.env.GUILD_ID) {
+    console.error('❌ Eroare: GUILD_ID nu este setat în variabilele de mediu!');
+    return;
+  }
+
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
   try {
     console.log('Se înregistrează comenzile Slash...');
     await rest.put(
       Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
-      { body: commands },
+      { body: commands.map(command => command.toJSON()) },
     );
     console.log('Comenzile Slash au fost înregistrate cu succes!');
   } catch (error) {
-    console.error(error);
+    console.error('Eroare la înregistrarea comenzilor:', error);
   }
 });
 
@@ -92,7 +82,6 @@ client.on('messageCreate', async (message) => {
 
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const commandName = args.shift().toLowerCase();
-  const { guild } = message;
 
   if (commandName === 'ping') {
     return message.reply(`Pong! ${client.ws.ping}ms`);
@@ -286,7 +275,8 @@ client.on('interactionCreate', async (interaction) => {
         new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
       );
 
-      await channel.send({ content: `<@${interaction.user.id}>`, embeds: [ticketEmbed], components: [row] });
+      // Ping pentru utilizator + @everyone sau rol de staff (poți schimba "@everyone" cu ID-ul rolului tău de staff dacă dorești)
+      await channel.send({ content: `<@${interaction.user.id}> @everyone`, embeds: [ticketEmbed], components: [row] });
       await interaction.reply({ content: `Tichetul tău a fost creat: ${channel}`, ephemeral: true });
       return;
     }
@@ -347,4 +337,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-    
+                                    
