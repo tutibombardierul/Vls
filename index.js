@@ -40,6 +40,7 @@ const client = new Client({
 const STAFF_ROLE_ID = '1530184577648300253'; 
 const VERIFIED_ROLE_ID = '1530184597919240192'; 
 const GUILD_ID = '1455317975191126219'; 
+const LOG_CHANNEL_ID = '1530184671827071160'; // ID-ul canalului tău de logs actualizat!
 
 const userMessageTracker = new Map();
 const userLastMessage = new Map();
@@ -49,6 +50,7 @@ const userCases = new Map();
 const userWarns = new Map(); 
 
 const commands = [
+  new SlashCommandBuilder().setName('help').setDescription('Afișează meniul de ajutor cu toate comenzile.'),
   new SlashCommandBuilder().setName('setup-verify').setDescription('Trimite panoul de verificare.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName('ticket-setup').setDescription('Panou de Suport Ticket.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -350,13 +352,27 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Procesare Prefix '-'
   if (!message.content.startsWith('-')) return;
 
   const args = message.content.slice(1).trim().split(/ +/);
   const command = args.shift().toLowerCase();
   const guild = message.guild;
   const botMember = guild.members.me;
+
+  if (command === 'help') {
+    const helpEmbed = new EmbedBuilder()
+      .setTitle('🛠️ Meniu de Ajutor - VLS Bot')
+      .setColor(0x0077b6)
+      .setDescription('Toate comenzile disponibile pot fi folosite cu prefixul `-` sau sub formă de Slash Commands (`/`).')
+      .addFields(
+        { name: '🌐 Generale', value: '`-ping`, `-server-info`, `-user-info`, `-rps`, `-help`', inline: false },
+        { name: '🛡️ Moderare & Sancțiuni', value: '`-warn`, `-rwarn`, `-mute`, `-unmute`, `-kick`, `-ban`, `-tempban`, `-unban`', inline: false },
+        { name: '⚙️ Utilitare & Administrare', value: '`-purge`, `-slowmode`, `-channel-lock`, `-channel-unlock`, `-say`, `-user-nick`, `-role-add`, `-role-remove`, `-role-temp`, `-setup-verify`, `-ticket-setup`', inline: false },
+        { name: '📁 Istoric & Notițe', value: '`-user-history`, `-case-view`, `-case-remove`, `-note-add`, `-note-view`, `-note-remove`, `-user-clear-history`', inline: false }
+      )
+      .setTimestamp();
+    return message.reply({ embeds: [helpEmbed] });
+  }
 
   if (command === 'ping') {
     return message.reply('Pong! 🏓 **' + client.ws.ping + 'ms**');
@@ -417,6 +433,12 @@ client.on('messageCreate', async (message) => {
   }
 
   if (command === 'channel-unlock') {
+    if (!member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply('❌ Nu ai permisiunea!');
+    await message.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null });
+    return message.reply('🔓 Canal deblocat!');
+  }
+
+  if (command === 'slowmode') {
     if (!member.permissions.has(PermissionFlagsBits.ManageChannels)) return message.reply('❌ Nu ai permisiunea!');
     await message.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null });
     return message.reply('🔓 Canal deblocat!');
@@ -595,7 +617,7 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: '🎉 Verificare Reușită! Ai primit rolul <@&' + VERIFIED_ROLE_ID + '>.', ephemeral: true });
     } catch (err) {
       console.error(err);
-      await interaction.reply({ content: '❌ Botul nu are permisiunea de a oferi acest rol!', ephemeral: true });
+      await interaction.reply({ content: '❌ Botul nu deține permisiunea de a oferi acest rol!', ephemeral: true });
     }
     return;
   }
@@ -627,24 +649,76 @@ client.on('interactionCreate', async (interaction) => {
         { id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles] }
       ]
     });
-
+         
     const ticketEmbed = new EmbedBuilder()
       .setTitle('🎫 Ticket nou: ' + categoryName)
       .setDescription('Salut <@' + user.id + '>! Descrie problema ta în detaliu.')
       .setColor(embedColor);
 
-    const closeRow = new ActionRowBuilder().addComponents(
+    const ticketRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('claim_ticket').setLabel('🔒 Claim').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Închide Ticket').setStyle(ButtonStyle.Danger)
     );
 
-    await ticketChannel.send({ content: '<@&' + STAFF_ROLE_ID + '> <@' + user.id + '>', embeds: [ticketEmbed], components: [closeRow] });
+    await ticketChannel.send({ content: '<@&' + STAFF_ROLE_ID + '> <@' + user.id + '>', embeds: [ticketEmbed], components: [ticketRow] });
     await interaction.editReply({ content: '✅ Ticket creat: ' + ticketChannel });
     return;
   }
 
+  if (interaction.isButton() && interaction.customId === 'claim_ticket') {
+    const member = interaction.member;
+    if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(STAFF_ROLE_ID)) {
+      return interaction.reply({ content: '❌ Doar membrii din staff pot prelua (claim) un ticket!', ephemeral: true });
+    }
+
+    try {
+      await interaction.channel.permissionOverwrites.edit(member.id, {
+        ViewChannel: true,
+        SendMessages: true,
+        ManageChannels: true
+      });
+      
+      await interaction.channel.permissionOverwrites.edit(STAFF_ROLE_ID, {
+        SendMessages: false
+      });
+
+      await interaction.update({ content: `✅ Ticket preluat de către <@${member.id}>!`, components: interaction.message.components });
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({ content: '❌ A apărut o eroare la preluarea ticketului.', ephemeral: true });
+    }
+    return;
+  }
+
   if (interaction.isButton() && interaction.customId === 'close_ticket') {
-    await interaction.reply({ content: '🔒 Ticketul se va închide în 5 secunde...', ephemeral: true });
-    setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+    await interaction.reply({ content: '🔒 Ticketul se va închide în 5 secunde...', ephemeral: false });
+    
+    const guild = interaction.guild;
+    const channel = interaction.channel;
+    const user = interaction.user;
+
+    setTimeout(async () => {
+      try {
+        const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
+        if (logChannel) {
+          const logEmbed = new EmbedBuilder()
+            .setAuthor({ name: guild.name, iconURL: guild.iconURL({ dynamic: true }) })
+            .setTitle('🏠 Channel Deleted:')
+            .setDescription(`\`${channel.name}\``)
+            .addFields(
+              { name: 'Responsible Moderator:', value: `<@${user.id}>`, inline: false },
+              { name: 'Reason:', value: `Closed by ${user.username} (${user.id}) - No reason provided`, inline: false }
+            )
+            .setColor(0xED4245)
+            .setTimestamp();
+          
+          await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
+        }
+        await channel.delete().catch(() => {});
+      } catch (e) {
+        console.error(e);
+      }
+    }, 5000);
     return;
   }
 
@@ -656,6 +730,26 @@ client.on('interactionCreate', async (interaction) => {
   const logCaseSlash = (targetId, action, reason) => {
     return logCase(guild.id, targetId, action, reason, executorUser.tag);
   };
+
+  if (commandName === 'help') {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('🛠️ Meniu de Ajutor - VLS Bot')
+          .setColor(0x0077b6)
+          .setDescription('Toate comenzile disponibile pe server:')
+          .addFields(
+            { name: '🌐 Generale', value: '`/ping`, `/server-info`, `/user-info`, `/rps`, `/help`', inline: false },
+            { name: '🛡️ Moderare & Sancțiuni', value: '`/warn`, `/rwarn`, `/mute`, `/unmute`, `/kick`, `/ban`, `/tempban`, `/unban`', inline: false },
+            { name: '⚙️ Utilitare & Administrare', value: '`/purge`, `/slowmode`, `/channel-lock`, `/channel-unlock`, `/say`, `/user-nick`, `/role-add`, `/role-remove`, `/role-temp`, `/setup-verify`, `/ticket-setup`', inline: false },
+            { name: '📁 Istoric & Notițe', value: '`/user-history`, `/case-view`, `/case-remove`, `/note-add`, `/note-view`, `/note-remove`, `/user-clear-history`', inline: false }
+          )
+          .setTimestamp()
+      ],
+      ephemeral: true
+    });
+    return;
+  }
 
   if (commandName === 'rps') {
     await interaction.deferReply({ ephemeral: false });
@@ -857,6 +951,7 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'tempban') {
     await interaction.deferReply({ ephemeral: true });
+    const target = options.getUser('user');
     const target = options.getUser('user');
     const hours = options.getInteger('ore');
     const reason = options.getString('motiv') || 'Fără motiv';
@@ -1064,7 +1159,7 @@ client.on('interactionCreate', async (interaction) => {
     const nota = options.getString('nota');
     if (!userNotes.has(target.id)) userNotes.set(target.id, []);
     userNotes.get(target.id).push({ nota, moderator: executorUser.tag, time: Date.now() });
-    await interaction.editReply({ content: '✅ Notă adaugată cu succes pentru **' + target.tag + '**!' });
+    await interaction.editReply({ content: '✅ Notă adăugată cu succes pentru **' + target.tag + '**!' });
     return;
   }
 
