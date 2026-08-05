@@ -1,0 +1,38 @@
+{
+  "categories": [
+    { "label": "Nitro", "value": "nitro", "description": "Abonamente Discord Nitro / Gifts" },
+    { "label": "Decorations", "value": "deco", "description": "Avatar Decorations & Profile Effects" },
+    { "label": "Server Boosts", "value": "boost", "description": "Boost-uri pentru serverul tău" },
+    { "label": "Spotify & Altele", "value": "other", "description": "Conturi Spotify Premium și alte servicii" }
+  ],
+  "products": {
+    "nitro": [
+      { "label": "Nitro Boost (1 Lună)", "value": "Nitro Boost 1M" },
+      { "label": "Nitro Boost (1 An)", "value": "Nitro Boost 1Y" },
+      { "label": "Nitro Basic (1 Lună)", "value": "Nitro Basic 1M" }
+    ],
+    "deco": [
+      { "label": "Avatar Decoration", "value": "Avatar Decoration" },
+      { "label": "Profile Effect", "value": "Profile Effect" }
+    ],
+    "boost": [
+      { "label": "2x Server Boosts", "value": "2x Boosts" },
+      { "label": "14x Server Boost Pack (3 Luni)", "value": "14x Boost Pack 3M" }
+    ],
+    "other": [
+      { "label": "Spotify Premium Individual", "value": "Spotify Premium" },
+      { "label": "Alt Produs / Custom", "value": "Custom Product" }
+    ]
+  },
+  "payments": [
+    { "label": "Revolut", "value": "revolut", "description": "Plată rapidă prin Revolut" },
+    { "label": "PayPal", "value": "paypal", "description": "Plată prin PayPal (Friends & Family)" },
+    { "label": "Crypto", "value": "crypto", "description": "LTC, USDT, BTC etc." },
+    { "label": "PaySafeCard", "value": "paysafecard", "description": "Plată prin cod PaySafe" }
+  ],
+  "crypto_options": [
+    { "label": "Litecoin (LTC)", "value": "LTC" },
+    { "label": "USDT (TRC20)", "value": "USDT-TRC20" },
+    { "label": "Bitcoin (BTC)", "value": "BTC" }
+  ]
+}
