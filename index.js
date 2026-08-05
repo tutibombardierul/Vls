@@ -1,10 +1,3 @@
-// Încărcare opțională dotenv (astfel încât pe Render să NU mai dea eroare "Cannot find module 'dotenv'")
-try {
-    require('dotenv').config();
-} catch (e) {
-    // În Render variabilele sunt încărcate automat din panoul Environment Settings
-}
-
 const http = require('http');
 const { 
     Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
@@ -14,7 +7,7 @@ const {
 } = require('discord.js');
 const config = require('./config.json');
 
-// --- SERVER HTTP PENTRU RENDER (Keep-Alive) ---
+// --- SERVER HTTP PENTRU RENDER & UPTIMEROBOT ---
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.write("VNS Market BOT este online si functional!");
@@ -27,10 +20,10 @@ http.createServer((req, res) => {
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 const userSelections = new Map();
 
-// ID-ul implicit pentru "Other" (Spotify / Alte produse) oferit de tine
+// ID-ul implicit pentru "Other" oferit de tine
 const DEFAULT_OTHER_ROLE_ID = '1534634684477083808';
 
-// Funcție pentru alocarea dinamica a rolului în funcție de categorie/produs
+// Funcție pentru alocarea rolului specific pe categorii
 function getTargetRoleId(categoryOrProduct) {
     if (!categoryOrProduct) {
         return process.env.OTHER_ROLE_ID || DEFAULT_OTHER_ROLE_ID;
@@ -38,17 +31,20 @@ function getTargetRoleId(categoryOrProduct) {
     
     const text = categoryOrProduct.toLowerCase();
 
+    // 1. Nitro
     if (text.includes('nitro')) {
         return process.env.NITRO_ROLE_ID || process.env.STAFF_ROLE_ID;
     }
+    // 2. Deco (Decorations)
     if (text.includes('deco') || text.includes('decorat')) {
         return process.env.DECO_ROLE_ID || process.env.STAFF_ROLE_ID;
     }
+    // 3. Boost
     if (text.includes('boost')) {
         return process.env.BOOST_ROLE_ID || process.env.STAFF_ROLE_ID;
     }
 
-    // Spotify și toate celelalte categorii -> Rolul Other (ID: 1534634684477083808)
+    // 4. Spotify și toate celelalte categorii/produse -> Rolul Other
     return process.env.OTHER_ROLE_ID || DEFAULT_OTHER_ROLE_ID;
 }
 
@@ -68,9 +64,9 @@ client.once('ready', async () => {
             Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
             { body: commands }
         );
-        console.log('✅ Comanda /setup-ticket a fost înregistrată cu succes!');
+        console.log('✅ Comanda /setup-ticket a fost înregistrată!');
     } catch (err) {
-        console.error('Eroare la înregistrarea comandei slash:', err);
+        console.error('Eroare la înregistrare:', err);
     }
 });
 
@@ -210,6 +206,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const guild = interaction.guild;
         
+        // Determinare nume canal & rol de notificat
         const categoryOrProd = data.product || data.category || 'ticket';
         const targetRoleId = getTargetRoleId(categoryOrProd);
 
@@ -217,19 +214,14 @@ client.on('interactionCreate', async (interaction) => {
         const cleanUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
         const channelName = `${cleanType}-${cleanUsername}`;
 
-        // Permisiuni canal
+        // Construim permisiunile canalului
         const permissionOverwrites = [
             { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-            { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+            { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+            { id: process.env.STAFF_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
         ];
 
-        if (process.env.STAFF_ROLE_ID) {
-            permissionOverwrites.push({
-                id: process.env.STAFF_ROLE_ID,
-                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
-            });
-        }
-
+        // Adăugăm permisiuni și pentru rolul ales dacă diferă de Staff General
         if (targetRoleId && targetRoleId !== process.env.STAFF_ROLE_ID) {
             permissionOverwrites.push({
                 id: targetRoleId,
@@ -241,18 +233,19 @@ client.on('interactionCreate', async (interaction) => {
             const ticketChannel = await guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
-                topic: targetRoleId,
-                parent: process.env.TICKET_CATEGORY_ID || null,
+                topic: targetRoleId, // Se salvează ID-ul rolului în descriere pentru butonul "Ping Staff"
+                parent: process.env.TICKET_CATEGORY_ID,
                 permissionOverwrites: permissionOverwrites
             });
 
+            // Embed-ul cu detaliile comenzii
             const orderEmbed = new EmbedBuilder()
                 .setTitle(`🧪 | ${data.product || data.category || 'Comandă Nouă'}`)
                 .setDescription(`${interaction.user} • \`PENDING\`\n\nMethod: **${data.payment || 'N/A'}**\nQuantity: **${data.quantity || '1x'}**\nProduct: **${data.product || data.category || 'N/A'}**\nAmount: **Discuss in ticket**`)
                 .setFooter({ text: 'VNS Market' })
                 .setColor('#2b2d31');
 
-            // Rândurile de butoane
+            // Rândurile de Butoane
             const row1 = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('btn_claim').setLabel('Claim').setEmoji('🔔').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('btn_transcript').setLabel('Transcript').setEmoji('📋').setStyle(ButtonStyle.Secondary)
@@ -268,7 +261,6 @@ client.on('interactionCreate', async (interaction) => {
             );
 
             const row4 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('btn_mm').setLabel('MM').setEmoji('🔀').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('btn_ping_staff').setLabel('Ping Staff').setEmoji('🔔').setStyle(ButtonStyle.Secondary)
             );
 
@@ -276,6 +268,7 @@ client.on('interactionCreate', async (interaction) => {
                 new ButtonBuilder().setCustomId('btn_close').setLabel('Close').setEmoji('🔒').setStyle(ButtonStyle.Danger)
             );
 
+            // Ping exact către rolul desemnat (Nitro, Deco, Boost sau Other)
             await ticketChannel.send({ 
                 content: `<@&${targetRoleId}> | ${interaction.user}`, 
                 embeds: [orderEmbed], 
@@ -285,60 +278,47 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.update({ content: `✅ Ticketul tău a fost creat: ${ticketChannel}`, components: [], ephemeral: true });
             userSelections.delete(userId);
         } catch (err) {
-            console.error('Eroare la crearea ticketului:', err);
-            await interaction.reply({ content: 'Eroare la crearea ticketului! Verifică permisiunile botului.', ephemeral: true });
+            console.error(err);
+            await interaction.reply({ content: 'Eroare la crearea ticketului!', ephemeral: true });
         }
     }
 
-    // 7. Handlers Butoane Panou Ticket
-    if (interaction.isButton()) {
-        const customId = interaction.customId;
+    // 7. Handlers pentru Butoane
 
-        // Claim
-        if (customId === 'btn_claim') {
-            const seller = interaction.user;
+    // Claim
+    if (interaction.isButton() && interaction.customId === 'btn_claim') {
+        const seller = interaction.user;
 
-            const claimEmbed = new EmbedBuilder()
-                .setTitle('🔔 | Ticket Preluat')
-                .setDescription(`${seller} se ocupă acum de comanda ta! Așteaptă instrucțiunile în acest ticket.`)
-                .setFooter({ text: 'VNS Market' })
-                .setColor('#57F287');
+        const claimEmbed = new EmbedBuilder()
+            .setTitle('🔔 | Ticket Preluat')
+            .setDescription(`${seller} se ocupă acum de comanda ta! Așteaptă instrucțiunile în acest ticket.`)
+            .setFooter({ text: 'VNS Market' })
+            .setColor('#57F287');
 
-            const updatedRows = interaction.message.components.map(row => {
-                const newRow = ActionRowBuilder.from(row);
-                newRow.components.forEach(btn => {
-                    if (btn.data.custom_id === 'btn_claim') {
-                        btn.setDisabled(true);
-                    }
-                });
-                return newRow;
+        const updatedRows = interaction.message.components.map(row => {
+            const newRow = ActionRowBuilder.from(row);
+            newRow.components.forEach(btn => {
+                if (btn.data.custom_id === 'btn_claim') {
+                    btn.setDisabled(true);
+                }
             });
+            return newRow;
+        });
 
-            await interaction.message.edit({ components: updatedRows });
-            return interaction.reply({ embeds: [claimEmbed] });
-        }
+        await interaction.message.edit({ components: updatedRows });
+        return interaction.reply({ embeds: [claimEmbed] });
+    }
 
-        // Close
-        if (customId === 'btn_close') {
-            await interaction.reply('🔒 Ticketul se va închide în 5 secunde...');
-            setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
-        }
+    // Close
+    if (interaction.isButton() && interaction.customId === 'btn_close') {
+        await interaction.reply('🔒 Ticketul se va închide în 5 secunde...');
+        setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+    }
 
-        // Ping Staff
-        if (customId === 'btn_ping_staff') {
-            const roleToPing = interaction.channel.topic || process.env.STAFF_ROLE_ID || DEFAULT_OTHER_ROLE_ID;
-            return interaction.reply({ content: `<@&${roleToPing}> Clientul solicită atenție în acest ticket!` });
-        }
-
-        // Middleman (MM)
-        if (customId === 'btn_mm') {
-            return interaction.reply({ content: '🔀 A fost solicitat un Middleman (MM). Așteaptă ca un reprezentant să preia cererea.', ephemeral: false });
-        }
-
-        // Celelalte optiuni de control
-        if (['btn_add_user', 'btn_remove_user', 'btn_change_qty', 'btn_transcript'].includes(customId)) {
-            return interaction.reply({ content: `Ai apăsat butonul **${customId.replace('btn_', '').replace('_', ' ')}**. Opțiune înregistrată.`, ephemeral: true });
-        }
+    // Ping Staff (Dă ping rolului alocat din topic)
+    if (interaction.isButton() && interaction.customId === 'btn_ping_staff') {
+        const roleToPing = interaction.channel.topic || process.env.STAFF_ROLE_ID;
+        return interaction.reply({ content: `<@&${roleToPing}> Clientul solicită atenție în acest ticket!` });
     }
 });
 
@@ -379,4 +359,4 @@ function showConfirmation(interaction, userId, isUpdate = false) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
-            
+                                                                                                                                                                 
