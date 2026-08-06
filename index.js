@@ -12,7 +12,7 @@ const {
 } = require('discord.js');
 const backup = require('discord-backup');
 
-// Inițializare Client
+// Initialize Client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -23,45 +23,103 @@ const client = new Client({
     ]
 });
 
-// Stocări temporare
+// In-memory storages
 const userMessages = new Map();
 const joinLogs = [];
 const actionTracker = new Map();
 
-// Regex pentru blocare invitații
-const inviteRegex = /(discord\.(gg|io|me|li)|discordapp\.com\/invite|discord\.com\/invite)\/[a-zA-Z0-9]+/gi;
+// Map for server security settings (Per Guild)
+const guildSettings = new Map();
 
-// Comenzi Slash
+function getGuildSettings(guildId) {
+    if (!guildSettings.has(guildId)) {
+        guildSettings.set(guildId, {
+            antiLink: true,  // Enabled by default
+            antiSpam: true,  // Enabled by default
+            antiRaid: true   // Enabled by default
+        });
+    }
+    return guildSettings.get(guildId);
+}
+
+// Regex for links and invites
+const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.(gg|io|me|li)|discordapp\.com\/invite|discord\.com\/invite)\/[a-zA-Z0-9]+/gi;
+
+// Slash Commands Registration
 const commands = [
     new SlashCommandBuilder()
         .setName('backup')
-        .setDescription('Sistemul de salvări pronxy\'s market')
+        .setDescription('Backup system for pronxy\'s market')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addSubcommand(sub =>
             sub.setName('create')
-               .setDescription('Creează un backup complet al serverului'))
+               .setDescription('Creates a complete backup of the server'))
         .addSubcommand(sub =>
             sub.setName('load')
-               .setDescription('Încarcă un backup existent')
-               .addStringOption(opt => opt.setName('id').setDescription('ID-ul backup-ului').setRequired(true))),
+               .setDescription('Loads an existing backup')
+               .addStringOption(opt => opt.setName('id').setDescription('The backup ID').setRequired(true))),
                
     new SlashCommandBuilder()
         .setName('denuke')
-        .setDescription('Restaurare rapidă în caz de atac - pronxy\'s market')
+        .setDescription('Quick server restoration in case of an attack')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addStringOption(opt => 
             opt.setName('backup_id')
-               .setDescription('ID-ul backup-ului pentru restaurare automată')
-               .setRequired(true))
+               .setDescription('The backup ID for automatic restoration')
+               .setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('antilink')
+        .setDescription('Enable or disable Anti-Link / Anti-Invite protection')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(opt =>
+            opt.setName('state')
+               .setDescription('Select module status')
+               .setRequired(true)
+               .addChoices(
+                   { name: 'Enabled 🟢', value: 'on' },
+                   { name: 'Disabled 🔴', value: 'off' }
+               )
+        ),
+
+    new SlashCommandBuilder()
+        .setName('antispam')
+        .setDescription('Enable or disable Anti-Spam protection')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(opt =>
+            opt.setName('state')
+               .setDescription('Select module status')
+               .setRequired(true)
+               .addChoices(
+                   { name: 'Enabled 🟢', value: 'on' },
+                   { name: 'Disabled 🔴', value: 'off' }
+               )
+        ),
+
+    new SlashCommandBuilder()
+        .setName('antiraid')
+        .setDescription('Enable or disable Anti-Raid protection')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(opt =>
+            opt.setName('state')
+               .setDescription('Select module status')
+               .setRequired(true)
+               .addChoices(
+                   { name: 'Enabled 🟢', value: 'on' },
+                   { name: 'Disabled 🔴', value: 'off' }
+               )
+        ),
+
+    new SlashCommandBuilder()
+        .setName('security')
+        .setDescription('Displays the status of pronxy\'s market security modules')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(cmd => cmd.toJSON());
 
-// Event: Pornire Bot
+// Event: Ready
 client.once('ready', async () => {
-    console.log(`[ONLINE] Botul pronxy's market este conectat ca ${client.user.tag}`);
-    
-    // Status personalizat pentru bot
-    client.user.setActivity("pronxy's market | /backup & /denuke", { type: ActivityType.Watching });
-    
+    console.log(`[ONLINE] pronxy's market bot connected as ${client.user.tag}`);
+    client.user.setActivity("pronxy's market | /security", { type: ActivityType.Watching });
     backup.setStorageFolder(__dirname + '/backups/');
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -70,84 +128,88 @@ client.once('ready', async () => {
             Routes.applicationCommands(process.env.CLIENT_ID),
             { body: commands }
         );
-        console.log('[SLASH COMMANDS] Comenzile pronxy\'s market au fost înregistrate.');
+        console.log('[SLASH COMMANDS] Security commands successfully registered.');
     } catch (error) {
-        console.error('Eroare la înregistrarea comenzilor:', error);
+        console.error('Error registering commands:', error);
     }
 });
 
-// -------------------------------------------------------------
-// 1. MODUL ANTI-INVITE & ANTI-SPAM
-// -------------------------------------------------------------
+// =============================================================
+// 1. ANTI-LINK & ANTI-SPAM MODULE
+// =============================================================
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
+    const config = getGuildSettings(message.guild.id);
 
-    // --- ANTI-INVITE ---
-    if (inviteRegex.test(message.content)) {
+    // --- ANTI-LINK ---
+    if (config.antiLink && linkRegex.test(message.content)) {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
             await message.delete().catch(() => {});
-            const alert = await message.channel.send(`🛡️ **[pronxy's market Security]** ${message.author}, invitațiile către alte servere nu sunt permise!`);
+            const alert = await message.channel.send(
+                `🛡️ **[pronxy's market Security]** ${message.author}, posting links or invites is not allowed!`
+            );
             setTimeout(() => alert.delete().catch(() => {}), 4000);
             return;
         }
     }
 
     // --- ANTI-SPAM ---
-    const userId = message.author.id;
-    const now = Date.now();
-    const SPAM_LIMIT = 5;      // Mesaje
-    const TIME_WINDOW = 4000;   // 4 Secunde
+    if (config.antiSpam) {
+        const userId = message.author.id;
+        const now = Date.now();
+        const SPAM_LIMIT = 5;
+        const TIME_WINDOW = 4000;
 
-    if (!userMessages.has(userId)) userMessages.set(userId, []);
-    const timestamps = userMessages.get(userId);
-    timestamps.push(now);
+        if (!userMessages.has(userId)) userMessages.set(userId, []);
+        const timestamps = userMessages.get(userId);
+        timestamps.push(now);
 
-    const recentMessages = timestamps.filter(time => now - time < TIME_WINDOW);
-    userMessages.set(userId, recentMessages);
+        const recentMessages = timestamps.filter(time => now - time < TIME_WINDOW);
+        userMessages.set(userId, recentMessages);
 
-    if (recentMessages.length > SPAM_LIMIT) {
-        try {
-            await message.member.timeout(10 * 60 * 1000, 'pronxy\'s market Anti-Spam System');
-            await message.channel.send(`⚠️ **[pronxy's market]** ${message.author.tag} a primit timeout 10 minute pentru spam.`);
-            userMessages.delete(userId);
-        } catch (err) {
-            console.error('Eroare aplicare Timeout:', err);
+        if (recentMessages.length > SPAM_LIMIT) {
+            try {
+                await message.delete().catch(() => {});
+                await message.member.timeout(10 * 60 * 1000, 'pronxy\'s market Anti-Spam System');
+                const spamAlert = await message.channel.send(
+                    `⚠️ **[pronxy's market]** User **${message.author.tag}** received a 10-minute timeout for SPAM!`
+                );
+                userMessages.delete(userId);
+                setTimeout(() => spamAlert.delete().catch(() => {}), 6000);
+            } catch (err) {}
         }
     }
 });
 
-// -------------------------------------------------------------
-// 2. MODUL ANTI-RAID
-// -------------------------------------------------------------
+// =============================================================
+// 2. ANTI-RAID MODULE
+// =============================================================
 client.on('guildMemberAdd', async (member) => {
+    const config = getGuildSettings(member.guild.id);
+    if (!config.antiRaid) return;
+
     const now = Date.now();
     joinLogs.push(now);
 
-    const RAID_LIMIT = 5;       // Maxim 5 intrări
-    const RAID_WINDOW = 10000;   // În 10 secunde
+    const RAID_LIMIT = 5;
+    const RAID_WINDOW = 10000;
     const recentJoins = joinLogs.filter(time => now - time < RAID_WINDOW);
 
     const accountAge = now - member.user.createdTimestamp;
-    const MIN_AGE = 3 * 24 * 60 * 60 * 1000; // 3 Zile vechime minimă
+    const MIN_AGE = 3 * 24 * 60 * 60 * 1000; // 3 Days
 
     if (recentJoins.length >= RAID_LIMIT || accountAge < MIN_AGE) {
         try {
-            await member.kick('pronxy\'s market Anti-Raid System / Cont nou/suspect');
-        } catch (err) {
-            console.error('Eroare Kick Anti-Raid:', err);
-        }
+            await member.kick('pronxy\'s market Anti-Raid System: New account or raid attempt detected');
+        } catch (err) {}
     }
 });
 
-// -------------------------------------------------------------
-// 3. MODUL DE-NUKE
-// -------------------------------------------------------------
+// =============================================================
+// 3. DE-NUKE MODULE (Channel deletion protection)
+// =============================================================
 client.on('channelDelete', async (channel) => {
-    const auditLogs = await channel.guild.fetchAuditLogs({
-        limit: 1,
-        type: AuditLogEvent.ChannelDelete
-    }).catch(() => null);
-
+    const auditLogs = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelDelete }).catch(() => null);
     if (!auditLogs) return;
     const logEntry = auditLogs.entries.first();
     if (!logEntry) return;
@@ -171,75 +233,99 @@ client.on('channelDelete', async (channel) => {
         const member = await channel.guild.members.fetch(executor.id).catch(() => null);
         if (member) {
             await member.roles.set([]).catch(() => {});
-            await member.ban({ reason: 'pronxy\'s market De-Nuke: Ștergere neautorizată de canale' }).catch(() => {});
+            await member.ban({ reason: 'pronxy\'s market De-Nuke: Channel deletion attempt' }).catch(() => {});
         }
     }
 });
 
-// -------------------------------------------------------------
-// 4. COMENZI /BACKUP & /DENUKE
-// -------------------------------------------------------------
+// =============================================================
+// 4. SLASH COMMAND INTERACTION HANDLER
+// =============================================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
-
     const { commandName, options, guild, user } = interaction;
+    const config = getGuildSettings(guild.id);
 
-    // --- COMANDA /BACKUP ---
+    // --- /ANTILINK COMMAND ---
+    if (commandName === 'antilink') {
+        const state = options.getString('state');
+        config.antiLink = (state === 'on');
+        return interaction.reply({
+            content: `🛡️ **[pronxy's market]** **Anti-Link** protection has been ${config.antiLink ? 'ENABLED 🟢' : 'DISABLED 🔴'}.`,
+            ephemeral: true
+        });
+    }
+
+    // --- /ANTISPAM COMMAND ---
+    if (commandName === 'antispam') {
+        const state = options.getString('state');
+        config.antiSpam = (state === 'on');
+        return interaction.reply({
+            content: `⚠️ **[pronxy's market]** **Anti-Spam** protection has been ${config.antiSpam ? 'ENABLED 🟢' : 'DISABLED 🔴'}.`,
+            ephemeral: true
+        });
+    }
+
+    // --- /ANTIRAID COMMAND ---
+    if (commandName === 'antiraid') {
+        const state = options.getString('state');
+        config.antiRaid = (state === 'on');
+        return interaction.reply({
+            content: `🚨 **[pronxy's market]** **Anti-Raid** protection has been ${config.antiRaid ? 'ENABLED 🟢' : 'DISABLED 🔴'}.`,
+            ephemeral: true
+        });
+    }
+
+    // --- /SECURITY COMMAND ---
+    if (commandName === 'security') {
+        const embed = new EmbedBuilder()
+            .setTitle('🛡️ Security Panel - pronxy\'s market')
+            .setDescription('Current status of automated protection systems:')
+            .addFields(
+                { name: '🔗 Anti-Link & Invites', value: config.antiLink ? '🟢 Enabled' : '🔴 Disabled', inline: true },
+                { name: '💬 Anti-Spam', value: config.antiSpam ? '🟢 Enabled' : '🔴 Disabled', inline: true },
+                { name: '🚨 Anti-Raid', value: config.antiRaid ? '🟢 Enabled' : '🔴 Disabled', inline: true }
+            )
+            .setColor('#2F3136')
+            .setFooter({ text: "pronxy's market Security" })
+            .setTimestamp();
+
+        return interaction.reply({ embeds: [embed] });
+    }
+
+    // --- /BACKUP COMMAND ---
     if (commandName === 'backup') {
         const subcommand = options.getSubcommand();
-
         if (subcommand === 'create') {
             await interaction.deferReply({ ephemeral: true });
-            
-            backup.create(guild, {
-                jsonBeautify: true,
-                saveImages: "base64"
-            }).then((backupData) => {
+            backup.create(guild, { jsonBeautify: true, saveImages: "base64" }).then((backupData) => {
                 const embed = new EmbedBuilder()
-                    .setTitle('💾 Backup Creat - pronxy\'s market')
-                    .setDescription(`Structura serverului a fost salvată cu succes!\n\n**ID Backup:** \`${backupData.id}\`\nPăstrează acest ID pentru restaurare!`)
-                    .setColor('#2F3136')
-                    .setFooter({ text: "pronxy's market Security System" })
-                    .setTimestamp();
+                    .setTitle('💾 Backup Created - pronxy\'s market')
+                    .setDescription(`Server structure saved successfully!\n\n**Backup ID:** \`${backupData.id}\``)
+                    .setColor('#2F3136');
                 interaction.editReply({ embeds: [embed] });
-            }).catch((err) => {
-                interaction.editReply(`Eroare la crearea backup-ului: ${err.message}`);
-            });
+            }).catch((err) => interaction.editReply(`Error: ${err.message}`));
         }
-
         if (subcommand === 'load') {
             const backupID = options.getString('id');
-            await interaction.reply({ content: '⚙️ **[pronxy\'s market]** Se inițializează restaurarea serverului...', ephemeral: true });
-
-            backup.load(backupID, guild).then(() => {
-                backup.remove(backupID);
-            }).catch((err) => {
-                interaction.followUp({ content: `Eroare la încărcarea backup-ului: ${err.message}`, ephemeral: true });
-            });
+            await interaction.reply({ content: '⚙️ Restoring server...', ephemeral: true });
+            backup.load(backupID, guild).catch((err) => interaction.followUp({ content: `Error: ${err.message}`, ephemeral: true }));
         }
     }
 
-    // --- COMANDA /DENUKE ---
+    // --- /DENUKE COMMAND ---
     if (commandName === 'denuke') {
-        if (user.id !== guild.ownerId) {
-            return interaction.reply({ content: '❌ Doar Owner-ul serverului pronxy\'s market poate executa De-Nuke!', ephemeral: true });
-        }
-
+        if (user.id !== guild.ownerId) return interaction.reply({ content: '❌ Only the Server Owner can execute De-Nuke!', ephemeral: true });
         const backupID = options.getString('backup_id');
-        await interaction.reply({ content: '🚨 **[pronxy\'s market] PROCEDURĂ DE-NUKE INIȚIATĂ.** Se restaurează serverul...', ephemeral: false });
-
+        await interaction.reply({ content: '🚨 **PROCEDURE DE-NUKE INITIATED...**', ephemeral: false });
         try {
             const bans = await guild.bans.fetch();
-            for (const ban of bans.values()) {
-                await guild.members.unban(ban.user.id, 'Procedură De-Nuke pronxy\'s market').catch(() => {});
-            }
-
+            for (const ban of bans.values()) await guild.members.unban(ban.user.id).catch(() => {});
             await backup.load(backupID, guild);
         } catch (err) {
-            await interaction.followUp({ content: `Eroare De-Nuke: ${err.message}` });
+            await interaction.followUp({ content: `De-Nuke Error: ${err.message}` });
         }
     }
 });
 
 client.login(process.env.DISCORD_TOKEN);
-                                 
