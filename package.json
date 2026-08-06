@@ -1,13 +1,14 @@
 {
-  "name": "vls-bot",
+  "name": "pronxy-market-bot",
   "version": "1.0.0",
-  "description": "Bot Discord VLS",
+  "description": "Bot custom de securitate și protecție pentru pronxy's market",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "express": "^4.19.2"
+    "discord-backup": "^3.0.4",
+    "dotenv": "^16.4.5"
   }
 }
