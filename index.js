@@ -1,362 +1,245 @@
-const http = require('http');
+require('dotenv').config();
 const { 
-    Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
-    StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, 
-    TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits, 
-    REST, Routes, SlashCommandBuilder 
+    Client, 
+    GatewayIntentBits, 
+    PermissionFlagsBits, 
+    AuditLogEvent, 
+    REST, 
+    Routes, 
+    SlashCommandBuilder, 
+    EmbedBuilder,
+    ActivityType
 } = require('discord.js');
-const config = require('./config.json');
+const backup = require('discord-backup');
 
-// --- SERVER HTTP PENTRU RENDER & UPTIMEROBOT ---
-http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.write("VNS Market BOT este online si functional!");
-    res.end();
-}).listen(process.env.PORT || 3000, () => {
-    console.log(`🌐 Server Web pornit pe portul ${process.env.PORT || 3000}`);
+// Inițializare Client
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildModeration
+    ]
 });
-// ------------------------------------------------
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
-const userSelections = new Map();
+// Stocări temporare
+const userMessages = new Map();
+const joinLogs = [];
+const actionTracker = new Map();
 
-// ID-ul implicit pentru "Other" oferit de tine
-const DEFAULT_OTHER_ROLE_ID = '1534634684477083808';
+// Regex pentru blocare invitații
+const inviteRegex = /(discord\.(gg|io|me|li)|discordapp\.com\/invite|discord\.com\/invite)\/[a-zA-Z0-9]+/gi;
 
-// Funcție pentru alocarea rolului specific pe categorii
-function getTargetRoleId(categoryOrProduct) {
-    if (!categoryOrProduct) {
-        return process.env.OTHER_ROLE_ID || DEFAULT_OTHER_ROLE_ID;
-    }
-    
-    const text = categoryOrProduct.toLowerCase();
+// Comenzi Slash
+const commands = [
+    new SlashCommandBuilder()
+        .setName('backup')
+        .setDescription('Sistemul de salvări pronxy\'s market')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addSubcommand(sub =>
+            sub.setName('create')
+               .setDescription('Creează un backup complet al serverului'))
+        .addSubcommand(sub =>
+            sub.setName('load')
+               .setDescription('Încarcă un backup existent')
+               .addStringOption(opt => opt.setName('id').setDescription('ID-ul backup-ului').setRequired(true))),
+               
+    new SlashCommandBuilder()
+        .setName('denuke')
+        .setDescription('Restaurare rapidă în caz de atac - pronxy\'s market')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(opt => 
+            opt.setName('backup_id')
+               .setDescription('ID-ul backup-ului pentru restaurare automată')
+               .setRequired(true))
+].map(cmd => cmd.toJSON());
 
-    // 1. Nitro
-    if (text.includes('nitro')) {
-        return process.env.NITRO_ROLE_ID || process.env.STAFF_ROLE_ID;
-    }
-    // 2. Deco (Decorations)
-    if (text.includes('deco') || text.includes('decorat')) {
-        return process.env.DECO_ROLE_ID || process.env.STAFF_ROLE_ID;
-    }
-    // 3. Boost
-    if (text.includes('boost')) {
-        return process.env.BOOST_ROLE_ID || process.env.STAFF_ROLE_ID;
-    }
-
-    // 4. Spotify și toate celelalte categorii/produse -> Rolul Other
-    return process.env.OTHER_ROLE_ID || DEFAULT_OTHER_ROLE_ID;
-}
-
+// Event: Pornire Bot
 client.once('ready', async () => {
-    console.log(`✅ VNS Market BOT este online ca ${client.user.tag}`);
+    console.log(`[ONLINE] Botul pronxy's market este conectat ca ${client.user.tag}`);
     
-    const commands = [
-        new SlashCommandBuilder()
-            .setName('setup-ticket')
-            .setDescription('Trimite panoul principal VNS Market')
-            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    ];
+    // Status personalizat pentru bot
+    client.user.setActivity("pronxy's market | /backup & /denuke", { type: ActivityType.Watching });
+    
+    backup.setStorageFolder(__dirname + '/backups/');
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         await rest.put(
-            Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+            Routes.applicationCommands(process.env.CLIENT_ID),
             { body: commands }
         );
-        console.log('✅ Comanda /setup-ticket a fost înregistrată!');
-    } catch (err) {
-        console.error('Eroare la înregistrare:', err);
+        console.log('[SLASH COMMANDS] Comenzile pronxy\'s market au fost înregistrate.');
+    } catch (error) {
+        console.error('Eroare la înregistrarea comenzilor:', error);
     }
 });
 
+// -------------------------------------------------------------
+// 1. MODUL ANTI-INVITE & ANTI-SPAM
+// -------------------------------------------------------------
+client.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.guild) return;
+
+    // --- ANTI-INVITE ---
+    if (inviteRegex.test(message.content)) {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            await message.delete().catch(() => {});
+            const alert = await message.channel.send(`🛡️ **[pronxy's market Security]** ${message.author}, invitațiile către alte servere nu sunt permise!`);
+            setTimeout(() => alert.delete().catch(() => {}), 4000);
+            return;
+        }
+    }
+
+    // --- ANTI-SPAM ---
+    const userId = message.author.id;
+    const now = Date.now();
+    const SPAM_LIMIT = 5;      // Mesaje
+    const TIME_WINDOW = 4000;   // 4 Secunde
+
+    if (!userMessages.has(userId)) userMessages.set(userId, []);
+    const timestamps = userMessages.get(userId);
+    timestamps.push(now);
+
+    const recentMessages = timestamps.filter(time => now - time < TIME_WINDOW);
+    userMessages.set(userId, recentMessages);
+
+    if (recentMessages.length > SPAM_LIMIT) {
+        try {
+            await message.member.timeout(10 * 60 * 1000, 'pronxy\'s market Anti-Spam System');
+            await message.channel.send(`⚠️ **[pronxy's market]** ${message.author.tag} a primit timeout 10 minute pentru spam.`);
+            userMessages.delete(userId);
+        } catch (err) {
+            console.error('Eroare aplicare Timeout:', err);
+        }
+    }
+});
+
+// -------------------------------------------------------------
+// 2. MODUL ANTI-RAID
+// -------------------------------------------------------------
+client.on('guildMemberAdd', async (member) => {
+    const now = Date.now();
+    joinLogs.push(now);
+
+    const RAID_LIMIT = 5;       // Maxim 5 intrări
+    const RAID_WINDOW = 10000;   // În 10 secunde
+    const recentJoins = joinLogs.filter(time => now - time < RAID_WINDOW);
+
+    const accountAge = now - member.user.createdTimestamp;
+    const MIN_AGE = 3 * 24 * 60 * 60 * 1000; // 3 Zile vechime minimă
+
+    if (recentJoins.length >= RAID_LIMIT || accountAge < MIN_AGE) {
+        try {
+            await member.kick('pronxy\'s market Anti-Raid System / Cont nou/suspect');
+        } catch (err) {
+            console.error('Eroare Kick Anti-Raid:', err);
+        }
+    }
+});
+
+// -------------------------------------------------------------
+// 3. MODUL DE-NUKE
+// -------------------------------------------------------------
+client.on('channelDelete', async (channel) => {
+    const auditLogs = await channel.guild.fetchAuditLogs({
+        limit: 1,
+        type: AuditLogEvent.ChannelDelete
+    }).catch(() => null);
+
+    if (!auditLogs) return;
+    const logEntry = auditLogs.entries.first();
+    if (!logEntry) return;
+
+    const { executor } = logEntry;
+    if (executor.id === client.user.id || executor.id === channel.guild.ownerId) return;
+
+    const now = Date.now();
+    const userData = actionTracker.get(executor.id) || { count: 0, firstAction: now };
+
+    if (now - userData.firstAction > 10000) {
+        userData.count = 1;
+        userData.firstAction = now;
+    } else {
+        userData.count++;
+    }
+
+    actionTracker.set(executor.id, userData);
+
+    if (userData.count >= 2) {
+        const member = await channel.guild.members.fetch(executor.id).catch(() => null);
+        if (member) {
+            await member.roles.set([]).catch(() => {});
+            await member.ban({ reason: 'pronxy\'s market De-Nuke: Ștergere neautorizată de canale' }).catch(() => {});
+        }
+    }
+});
+
+// -------------------------------------------------------------
+// 4. COMENZI /BACKUP & /DENUKE
+// -------------------------------------------------------------
 client.on('interactionCreate', async (interaction) => {
-    const userId = interaction.user.id;
+    if (!interaction.isChatInputCommand()) return;
 
-    // 1. Comanda Slash /setup-ticket
-    if (interaction.isChatInputCommand() && interaction.commandName === 'setup-ticket') {
-        const mainEmbed = new EmbedBuilder()
-            .setTitle('🛒 VNS Market | Panou Comenzi')
-            .setDescription('Selectează o categorie mai jos pentru a începe configurarea comenzii.')
-            .setFooter({ text: 'VNS Market' })
-            .setColor('#2b2d31');
+    const { commandName, options, guild, user } = interaction;
 
-        const categoryMenu = new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId('step_category')
-                .setPlaceholder('Selectează o categorie...')
-                .addOptions(config.categories)
-        );
+    // --- COMANDA /BACKUP ---
+    if (commandName === 'backup') {
+        const subcommand = options.getSubcommand();
 
-        await interaction.reply({ content: 'Panou VNS Market trimis!', ephemeral: true });
-        return interaction.channel.send({ embeds: [mainEmbed], components: [categoryMenu] });
-    }
-
-    // 2. Selectare Categorie
-    if (interaction.isStringSelectMenu() && interaction.customId === 'step_category') {
-        const category = interaction.values[0];
-        userSelections.set(userId, { category });
-
-        const subProducts = config.products[category];
-
-        if (subProducts) {
-            const productMenu = new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('step_product')
-                    .setPlaceholder('Selectează tipul de produs...')
-                    .addOptions(subProducts)
-            );
-            return interaction.reply({ content: '📦 **Pasul 1:** Alege tipul de produs:', components: [productMenu], ephemeral: true });
-        } else {
-            return showConfirmation(interaction, userId);
-        }
-    }
-
-    // 3. Selectare Produs
-    if (interaction.isStringSelectMenu() && interaction.customId === 'step_product') {
-        const currentData = userSelections.get(userId) || {};
-        currentData.product = interaction.values[0];
-        userSelections.set(userId, currentData);
-
-        const qtyMenu = new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId('step_quantity')
-                .setPlaceholder('Selectează cantitatea...')
-                .addOptions([
-                    { label: '1x', value: '1x' },
-                    { label: '2x', value: '2x' },
-                    { label: '14x (Server Boost Pack)', value: '14x' },
-                    { label: 'Cantitate Custom', value: 'custom', description: 'Scrie manual numărul dorit' }
-                ])
-        );
-
-        return interaction.update({ content: '📊 **Pasul 2:** Alege cantitatea dorită:', components: [qtyMenu] });
-    }
-
-    // 4. Selectare Cantitate
-    if (interaction.isStringSelectMenu() && interaction.customId === 'step_quantity') {
-        const qtyChoice = interaction.values[0];
-
-        if (qtyChoice === 'custom') {
-            const modal = new ModalBuilder()
-                .setCustomId('modal_custom_qty')
-                .setTitle('Introdu cantitatea dorită');
-
-            const qtyInput = new TextInputBuilder()
-                .setCustomId('qty_input')
-                .setLabel('Numărul de bucăți')
-                .setStyle(TextInputStyle.Short)
-                .setPlaceholder('ex: 5')
-                .setRequired(true);
-
-            modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
-            return interaction.showModal(modal);
-        }
-
-        const currentData = userSelections.get(userId) || {};
-        currentData.quantity = qtyChoice;
-        userSelections.set(userId, currentData);
-
-        return promptPayment(interaction);
-    }
-
-    // Modal Cantitate Custom
-    if (interaction.isModalSubmit() && interaction.customId === 'modal_custom_qty') {
-        const customQty = interaction.fields.getTextInputValue('qty_input');
-        const currentData = userSelections.get(userId) || {};
-        currentData.quantity = `${customQty}x`;
-        userSelections.set(userId, currentData);
-
-        return promptPayment(interaction, true);
-    }
-
-    // 5. Selectare Platǎ
-    if (interaction.isStringSelectMenu() && interaction.customId === 'step_payment') {
-        const paymentChoice = interaction.values[0];
-        const currentData = userSelections.get(userId) || {};
-
-        if (paymentChoice === 'crypto') {
-            const cryptoMenu = new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('step_crypto_sub')
-                    .setPlaceholder('Selectează moneda Crypto...')
-                    .addOptions(config.crypto_options)
-            );
-            return interaction.update({ content: '🪙 **Pasul 4:** Alege rețeaua Crypto:', components: [cryptoMenu] });
-        }
-
-        currentData.payment = paymentChoice.toUpperCase();
-        userSelections.set(userId, currentData);
-        return showConfirmation(interaction, userId, true);
-    }
-
-    // Sub-pas Crypto
-    if (interaction.isStringSelectMenu() && interaction.customId === 'step_crypto_sub') {
-        const currentData = userSelections.get(userId) || {};
-        currentData.payment = `Crypto (${interaction.values[0]})`;
-        userSelections.set(userId, currentData);
-
-        return showConfirmation(interaction, userId, true);
-    }
-
-    // 6. Creare Ticket Privat & Panou Control
-    if (interaction.isButton() && interaction.customId === 'btn_create_ticket') {
-        const data = userSelections.get(userId);
-        if (!data) return interaction.reply({ content: 'Sesiunea a expirat. Încearcă din nou!', ephemeral: true });
-
-        const guild = interaction.guild;
-        
-        // Determinare nume canal & rol de notificat
-        const categoryOrProd = data.product || data.category || 'ticket';
-        const targetRoleId = getTargetRoleId(categoryOrProd);
-
-        const cleanType = categoryOrProd.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-        const cleanUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const channelName = `${cleanType}-${cleanUsername}`;
-
-        // Construim permisiunile canalului
-        const permissionOverwrites = [
-            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-            { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-            { id: process.env.STAFF_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-        ];
-
-        // Adăugăm permisiuni și pentru rolul ales dacă diferă de Staff General
-        if (targetRoleId && targetRoleId !== process.env.STAFF_ROLE_ID) {
-            permissionOverwrites.push({
-                id: targetRoleId,
-                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+        if (subcommand === 'create') {
+            await interaction.deferReply({ ephemeral: true });
+            
+            backup.create(guild, {
+                jsonBeautify: true,
+                saveImages: "base64"
+            }).then((backupData) => {
+                const embed = new EmbedBuilder()
+                    .setTitle('💾 Backup Creat - pronxy\'s market')
+                    .setDescription(`Structura serverului a fost salvată cu succes!\n\n**ID Backup:** \`${backupData.id}\`\nPăstrează acest ID pentru restaurare!`)
+                    .setColor('#2F3136')
+                    .setFooter({ text: "pronxy's market Security System" })
+                    .setTimestamp();
+                interaction.editReply({ embeds: [embed] });
+            }).catch((err) => {
+                interaction.editReply(`Eroare la crearea backup-ului: ${err.message}`);
             });
         }
+
+        if (subcommand === 'load') {
+            const backupID = options.getString('id');
+            await interaction.reply({ content: '⚙️ **[pronxy\'s market]** Se inițializează restaurarea serverului...', ephemeral: true });
+
+            backup.load(backupID, guild).then(() => {
+                backup.remove(backupID);
+            }).catch((err) => {
+                interaction.followUp({ content: `Eroare la încărcarea backup-ului: ${err.message}`, ephemeral: true });
+            });
+        }
+    }
+
+    // --- COMANDA /DENUKE ---
+    if (commandName === 'denuke') {
+        if (user.id !== guild.ownerId) {
+            return interaction.reply({ content: '❌ Doar Owner-ul serverului pronxy\'s market poate executa De-Nuke!', ephemeral: true });
+        }
+
+        const backupID = options.getString('backup_id');
+        await interaction.reply({ content: '🚨 **[pronxy\'s market] PROCEDURĂ DE-NUKE INIȚIATĂ.** Se restaurează serverul...', ephemeral: false });
 
         try {
-            const ticketChannel = await guild.channels.create({
-                name: channelName,
-                type: ChannelType.GuildText,
-                topic: targetRoleId, // Se salvează ID-ul rolului în descriere pentru butonul "Ping Staff"
-                parent: process.env.TICKET_CATEGORY_ID,
-                permissionOverwrites: permissionOverwrites
-            });
+            const bans = await guild.bans.fetch();
+            for (const ban of bans.values()) {
+                await guild.members.unban(ban.user.id, 'Procedură De-Nuke pronxy\'s market').catch(() => {});
+            }
 
-            // Embed-ul cu detaliile comenzii
-            const orderEmbed = new EmbedBuilder()
-                .setTitle(`🧪 | ${data.product || data.category || 'Comandă Nouă'}`)
-                .setDescription(`${interaction.user} • \`PENDING\`\n\nMethod: **${data.payment || 'N/A'}**\nQuantity: **${data.quantity || '1x'}**\nProduct: **${data.product || data.category || 'N/A'}**\nAmount: **Discuss in ticket**`)
-                .setFooter({ text: 'VNS Market' })
-                .setColor('#2b2d31');
-
-            // Rândurile de Butoane
-            const row1 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('btn_claim').setLabel('Claim').setEmoji('🔔').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('btn_transcript').setLabel('Transcript').setEmoji('📋').setStyle(ButtonStyle.Secondary)
-            );
-
-            const row2 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('btn_add_user').setLabel('Add User').setEmoji('👤').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('btn_remove_user').setLabel('Remove User').setEmoji('🚫').setStyle(ButtonStyle.Secondary)
-            );
-
-            const row3 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('btn_change_qty').setLabel('Change Quantity').setEmoji('🛒').setStyle(ButtonStyle.Secondary)
-            );
-
-            const row4 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('btn_ping_staff').setLabel('Ping Staff').setEmoji('🔔').setStyle(ButtonStyle.Secondary)
-            );
-
-            const row5 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('btn_close').setLabel('Close').setEmoji('🔒').setStyle(ButtonStyle.Danger)
-            );
-
-            // Ping exact către rolul desemnat (Nitro, Deco, Boost sau Other)
-            await ticketChannel.send({ 
-                content: `<@&${targetRoleId}> | ${interaction.user}`, 
-                embeds: [orderEmbed], 
-                components: [row1, row2, row3, row4, row5] 
-            });
-
-            await interaction.update({ content: `✅ Ticketul tău a fost creat: ${ticketChannel}`, components: [], ephemeral: true });
-            userSelections.delete(userId);
+            await backup.load(backupID, guild);
         } catch (err) {
-            console.error(err);
-            await interaction.reply({ content: 'Eroare la crearea ticketului!', ephemeral: true });
+            await interaction.followUp({ content: `Eroare De-Nuke: ${err.message}` });
         }
-    }
-
-    // 7. Handlers pentru Butoane
-
-    // Claim
-    if (interaction.isButton() && interaction.customId === 'btn_claim') {
-        const seller = interaction.user;
-
-        const claimEmbed = new EmbedBuilder()
-            .setTitle('🔔 | Ticket Preluat')
-            .setDescription(`${seller} se ocupă acum de comanda ta! Așteaptă instrucțiunile în acest ticket.`)
-            .setFooter({ text: 'VNS Market' })
-            .setColor('#57F287');
-
-        const updatedRows = interaction.message.components.map(row => {
-            const newRow = ActionRowBuilder.from(row);
-            newRow.components.forEach(btn => {
-                if (btn.data.custom_id === 'btn_claim') {
-                    btn.setDisabled(true);
-                }
-            });
-            return newRow;
-        });
-
-        await interaction.message.edit({ components: updatedRows });
-        return interaction.reply({ embeds: [claimEmbed] });
-    }
-
-    // Close
-    if (interaction.isButton() && interaction.customId === 'btn_close') {
-        await interaction.reply('🔒 Ticketul se va închide în 5 secunde...');
-        setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
-    }
-
-    // Ping Staff (Dă ping rolului alocat din topic)
-    if (interaction.isButton() && interaction.customId === 'btn_ping_staff') {
-        const roleToPing = interaction.channel.topic || process.env.STAFF_ROLE_ID;
-        return interaction.reply({ content: `<@&${roleToPing}> Clientul solicită atenție în acest ticket!` });
     }
 });
 
-function promptPayment(interaction, isModal = false) {
-    const payMenu = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('step_payment')
-            .setPlaceholder('Selectează metoda de plată...')
-            .addOptions(config.payments)
-    );
-
-    const payload = { content: '💳 **Pasul 3:** Alege metoda de plată:', components: [payMenu] };
-    return isModal ? interaction.reply({ ...payload, ephemeral: true }) : interaction.update(payload);
-}
-
-function showConfirmation(interaction, userId, isUpdate = false) {
-    const data = userSelections.get(userId) || {};
-
-    const confirmEmbed = new EmbedBuilder()
-        .setTitle('✅ Confirmă Comanda — VNS Market')
-        .setDescription('Verifică opțiunile înainte de a deschide ticketul privat:')
-        .addFields(
-            { name: 'Categorie', value: `${data.category || 'N/A'}`, inline: true },
-            { name: 'Produs', value: `${data.product || 'N/A'}`, inline: true },
-            { name: 'Cantitate', value: `${data.quantity || '1x'}`, inline: true },
-            { name: 'Metodă Platǎ', value: `${data.payment || 'N/A'}`, inline: true }
-        )
-        .setFooter({ text: 'VNS Market' })
-        .setColor('#FEE75C');
-
-    const buttons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('btn_create_ticket').setLabel('Creează Ticket').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('btn_cancel').setLabel('Anulează').setStyle(ButtonStyle.Danger)
-    );
-
-    const payload = { content: '', embeds: [confirmEmbed], components: [buttons], ephemeral: true };
-    return isUpdate ? interaction.update(payload) : interaction.reply(payload);
-}
-
 client.login(process.env.DISCORD_TOKEN);
-                                                                                                                                                                 
+                                 
